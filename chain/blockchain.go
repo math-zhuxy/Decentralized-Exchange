@@ -23,16 +23,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/holiman/uint256"
 	"log"
 	"math/big"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/holiman/uint256"
 )
 
 type BlockChain struct {
@@ -103,11 +104,9 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 	//	copiedMap[key] = value
 	//}
 
-
 	var (
-
-		gp         = new(vm.GasPool).AddGas(blockHeader.GasLimit)
-		statedb, _,sn = state.New(global2.Root, bc.Statedb)
+		gp             = new(vm.GasPool).AddGas(blockHeader.GasLimit)
+		statedb, _, sn = state.New(global2.Root, bc.Statedb)
 	)
 
 	//fmt.Println("GetUpdateStatusTrie... len of txs is ", len(txs))
@@ -116,19 +115,19 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 	//UUID:= strconv.Itoa(int(global.ShardID)) + "-"+uuid.New().String()
 	for idx, tx := range txs {
 
-		UUID:= tx.UUID
+		UUID := tx.UUID
 
 		FromStr := hex.EncodeToString(tx.From[:])
 		ToStr := hex.EncodeToString(tx.To[:])
 
 		for true {
 			global.GLobalLock.Lock()
-			if _,ok1 :=global.GlobalLockMap[FromStr];ok1{
+			if _, ok1 := global.GlobalLockMap[FromStr]; ok1 {
 				global.GLobalLock.Unlock()
 				continue
 			}
 
-			if _,ok2 :=global.GlobalLockMap[ToStr];ok2{
+			if _, ok2 := global.GlobalLockMap[ToStr]; ok2 {
 				global.GLobalLock.Unlock()
 				continue
 			}
@@ -139,12 +138,11 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 			break
 		}
 
-
-		ExeTx(tx, statedb, blockHeader, bc, idx, gp,UUID)
+		ExeTx(tx, statedb, blockHeader, bc, idx, gp, UUID)
 
 		global.GLobalLock.Lock()
-		delete(global.GlobalLockMap,FromStr)
-		delete(global.GlobalLockMap,ToStr)
+		delete(global.GlobalLockMap, FromStr)
+		delete(global.GlobalLockMap, ToStr)
 		global.GLobalLock.Unlock()
 
 	}
@@ -163,7 +161,7 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 
 	var hash common.Hash
 	var err error
-	if sn == "new"{
+	if sn == "new" {
 
 		//hash, err = statedb.Commit(blockHeader.Number, false)
 
@@ -186,7 +184,6 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 		global3.Lock.Unlock()
 	}
 
-
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -194,17 +191,11 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 	return hash
 }
 
-func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.BlockHeader, bc *BlockChain, idx int, gp *vm.GasPool,UUID string) {
+func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.BlockHeader, bc *BlockChain, idx int, gp *vm.GasPool, UUID string) {
 	global.ExeTxLock.LockWithOwner(UUID)
 	defer global.ExeTxLock.Unlock()
 
-
-
-
-
-
-
-	if tx.IsContract && global.NodeID == 0{
+	if tx.IsContract && global.NodeID == 0 {
 		msg := &core.Message{
 			Nonce:     tx.Nonce, //目前是按交易递增的，实际是按sender递增的
 			GasLimit:  tx.Gas,
@@ -238,25 +229,24 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 		//fmt.Println("SetTxContext")
 		statedb.SetTxContext(common.Hash(tx.TxHash), idx)
 		//fmt.Println("ApplyTransactionWithEVM")
-		res, err := ApplyTransactionWithEVM(msg, gp, statedb, vmenv,UUID)
+		res, err := ApplyTransactionWithEVM(msg, gp, statedb, vmenv, UUID)
 		var zeroAddr common.Address
 		if res != nil {
 			if res.ContractAddr != zeroAddr {
-				fmt.Println("UUID为"+UUID+",执行结果为"+hex.EncodeToString(res.ContractAddr[:]))
-				bc.Storage.AddContractRes(UUID,res.ContractAddr[:])
-			}else {
+				fmt.Println("UUID为" + UUID + ",执行结果为" + hex.EncodeToString(res.ContractAddr[:]))
+				bc.Storage.AddContractRes(UUID, res.ContractAddr[:])
+			} else {
 
-				fmt.Println("UUID为"+UUID+",执行结果为"+hex.EncodeToString(res.ReturnData))
-				bc.Storage.AddContractRes(UUID,res.ReturnData)
+				fmt.Println("UUID为" + UUID + ",执行结果为" + hex.EncodeToString(res.ReturnData))
+				bc.Storage.AddContractRes(UUID, res.ReturnData)
 			}
 		} else {
 			bc.Storage.AddContractRes(UUID, []byte(err.Error()))
 		}
 
-
 		bc.Storage.DataBase.Sync()
 		if err != nil {
-			fmt.Println("exetx回滚，UUID为"+UUID+",error为"+err.Error())
+			fmt.Println("exetx回滚，UUID为" + UUID + ",error为" + err.Error())
 			statedb.RevertToSnapshot(snap)
 			//TODO
 			gp = new(vm.GasPool).AddGas(blockHeader.GasLimit)
@@ -265,76 +255,73 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 		} else {
 			if statedb.GetJournal().Entries != nil && len(statedb.GetJournal().Entries) != 0 {
 
+				j := statedb.GetJournal().Copy()
+				idx_ := sort.Search(len(j.ValidRevisions), func(i int) bool {
+					return j.ValidRevisions[i].Id >= snap
+				})
+				s1 := j.ValidRevisions[idx_].JournalIndex
+				var w1 []state.Wrapper
+				for i := s1; i <= len(j.Entries)-1; i++ {
+					w := j.Entries[i]
+					switch w.(type) {
+					case state.CreateObjectChange, *state.CreateObjectChange:
+						w1 = append(w1, state.Wrapper{Type: "CreateObjectChange", OriginalObj: w})
+					case state.CreateContractChange, *state.CreateContractChange:
+						w1 = append(w1, state.Wrapper{Type: "CreateContractChange", OriginalObj: w})
+					case state.SelfDestructChange, *state.SelfDestructChange:
+						w1 = append(w1, state.Wrapper{Type: "SelfDestructChange", OriginalObj: w})
+					case state.BalanceChange, *state.BalanceChange:
+						w1 = append(w1, state.Wrapper{Type: "BalanceChange", OriginalObj: w})
+					case state.NonceChange, *state.NonceChange:
+						w1 = append(w1, state.Wrapper{Type: "NonceChange", OriginalObj: w})
+					case state.StorageChange, *state.StorageChange:
+						w1 = append(w1, state.Wrapper{Type: "StorageChange", OriginalObj: w})
+					case state.CodeChange, *state.CodeChange:
+						w1 = append(w1, state.Wrapper{Type: "CodeChange", OriginalObj: w})
+					case state.RefundChange, *state.RefundChange:
+						w1 = append(w1, state.Wrapper{Type: "RefundChange", OriginalObj: w})
+					case state.AddLogChange, *state.AddLogChange:
+						w1 = append(w1, state.Wrapper{Type: "AddLogChange", OriginalObj: w})
+					case state.TouchChange, *state.TouchChange:
+						w1 = append(w1, state.Wrapper{Type: "TouchChange", OriginalObj: w})
+					case state.AccessListAddAccountChange, *state.AccessListAddAccountChange:
+						w1 = append(w1, state.Wrapper{Type: "AccessListAddAccountChange", OriginalObj: w})
+					case state.AccessListAddSlotChange, *state.AccessListAddSlotChange:
+						w1 = append(w1, state.Wrapper{Type: "AccessListAddSlotChange", OriginalObj: w})
+					case state.TransientStorageChange, *state.TransientStorageChange:
+						w1 = append(w1, state.Wrapper{Type: "TransientStorageChange", OriginalObj: w})
+					default:
+						fmt.Println("exetx error unknown type")
+					}
 
-			j := statedb.GetJournal().Copy()
-			idx_ := sort.Search(len(j.ValidRevisions), func(i int) bool {
-				return j.ValidRevisions[i].Id >= snap
-			})
-			s1 := j.ValidRevisions[idx_].JournalIndex
-			var w1 []state.Wrapper
-			for i := s1; i <= len(j.Entries)-1; i++ {
-				w := j.Entries[i]
-				switch w.(type) {
-				case state.CreateObjectChange,*state.CreateObjectChange:
-					w1 = append(w1, state.Wrapper{Type: "CreateObjectChange", OriginalObj: w})
-				case state.CreateContractChange,*state.CreateContractChange:
-					w1 = append(w1, state.Wrapper{Type: "CreateContractChange", OriginalObj: w})
-				case state.SelfDestructChange,*state.SelfDestructChange:
-					w1 = append(w1, state.Wrapper{Type: "SelfDestructChange", OriginalObj: w})
-				case state.BalanceChange,*state.BalanceChange:
-					w1 = append(w1, state.Wrapper{Type: "BalanceChange", OriginalObj: w})
-				case state.NonceChange,*state.NonceChange:
-					w1 = append(w1, state.Wrapper{Type: "NonceChange", OriginalObj: w})
-				case state.StorageChange,*state.StorageChange:
-					w1 = append(w1, state.Wrapper{Type: "StorageChange", OriginalObj: w})
-				case state.CodeChange,*state.CodeChange:
-					w1 = append(w1, state.Wrapper{Type: "CodeChange", OriginalObj: w})
-				case state.RefundChange,*state.RefundChange:
-					w1 = append(w1, state.Wrapper{Type: "RefundChange", OriginalObj: w})
-				case state.AddLogChange,*state.AddLogChange:
-					w1 = append(w1, state.Wrapper{Type: "AddLogChange", OriginalObj: w})
-				case state.TouchChange,*state.TouchChange:
-					w1 = append(w1, state.Wrapper{Type: "TouchChange", OriginalObj: w})
-				case state.AccessListAddAccountChange,*state.AccessListAddAccountChange:
-					w1 = append(w1, state.Wrapper{Type: "AccessListAddAccountChange", OriginalObj: w})
-				case state.AccessListAddSlotChange,*state.AccessListAddSlotChange:
-					w1 = append(w1, state.Wrapper{Type: "AccessListAddSlotChange", OriginalObj: w})
-				case state.TransientStorageChange,*state.TransientStorageChange:
-					w1 = append(w1, state.Wrapper{Type: "TransientStorageChange", OriginalObj: w})
-				default:
-					fmt.Println("exetx error unknown type")
 				}
+				tx.Log = w1
 
 			}
-			tx.Log = w1
 
 		}
-
-		}
-		if res!=nil&&res.Err != nil {
+		if res != nil && res.Err != nil {
 			fmt.Println(res.Err)
 		}
 
-		if res != nil{
+		if res != nil {
 			fmt.Println("使用的gas:", res.UsedGas)
 			fmt.Println("退还的gas:", res.RefundedGas)
 		}
 
-
 		m := new(message.TxInfo)
 		m.TxHash = tx.TxHash
-		if res!=nil && res.Err == nil{
+		if res != nil && res.Err == nil {
 			m.IsSuccess = true
-		}else {
+		} else {
 			m.IsSuccess = false
 		}
 
-
 		m.GasPrice = tx.GasPrice.Uint64()
-		if res != nil{
-		m.GasUsed = res.UsedGas
+		if res != nil {
+			m.GasUsed = res.UsedGas
 
-		//m.ExecuteResult = res.ReturnData
+			//m.ExecuteResult = res.ReturnData
 		}
 		m.GasLimit = tx.Gas
 		m.IsContract = true
@@ -349,7 +336,7 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 		if res != nil {
 			if res.ContractAddr != zeroAddr {
 				m.Res = res.ContractAddr[:]
-			}else {
+			} else {
 				m.Res = res.ReturnData
 			}
 		} else {
@@ -402,7 +389,7 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 
 		//fmt.Println(hex.EncodeToString(res.ContractAddr[:]))
 		return
-	} else if tx.IsContract && global.NodeID !=0 && tx.Log != nil && len(tx.Log)>0{
+	} else if tx.IsContract && global.NodeID != 0 && tx.Log != nil && len(tx.Log) > 0 {
 		for _, item := range tx.Log {
 			item.OriginalObj.Execute(statedb)
 		}
@@ -502,11 +489,10 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 			value, _ := uint256.FromBig(tx.Value)
 			value2, _ := uint256.FromBig(tx.Fee)
 			s, _ := hex.DecodeString(tx.Sender)
-			fmt.Println("分片：",strconv.Itoa(int(global.ShardID)),",地址：",tx.Sender,"，更新前的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10),",value是：",value.String())
+			// fmt.Println("分片：",strconv.Itoa(int(global.ShardID)),",地址：",tx.Sender,"，更新前的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10),",value是：",value.String())
 			statedb.SubBalance(common.Address(s), value, tracing.BalanceSubByXBZ)
 			statedb.SubBalance(common.Address(s), value2, tracing.BalanceSubByXBZ)
-			fmt.Println("分片：",strconv.Itoa(int(global.ShardID)), ",地址：",tx.Sender,"，更新后的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10))
-
+			// fmt.Println("分片：",strconv.Itoa(int(global.ShardID)), ",地址：",tx.Sender,"，更新后的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10))
 
 			//s_state.Deduct(tx.Value)
 			//
@@ -515,7 +501,6 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 			//st.Update([]byte(tx.Sender), s_state.Encode())
 		}
 	}
-
 
 	// recipientIn := false
 	//fmt.Println(tx.Recipient)
@@ -543,9 +528,9 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 
 			value, _ := uint256.FromBig(tx.Value)
 			s, _ := hex.DecodeString(tx.Recipient)
-			fmt.Println("分片：",strconv.Itoa(int(global.ShardID)),"地址：",tx.Recipient,"，更新前的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10),",value是：",value.String())
+			fmt.Println("分片：", strconv.Itoa(int(global.ShardID)), "地址：", tx.Recipient, "，更新前的余额：", statedb.GetBalance(common.Address(s)).ToBig().Text(10), ",value是：", value.String())
 			statedb.AddBalance(common.Address(s), value, tracing.BalanceAddByXBZ)
-			fmt.Println("分片：",strconv.Itoa(int(global.ShardID)),"地址：",tx.Recipient,"，更新后的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10))
+			fmt.Println("分片：", strconv.Itoa(int(global.ShardID)), "地址：", tx.Recipient, "，更新后的余额：", statedb.GetBalance(common.Address(s)).ToBig().Text(10))
 		}
 	}
 
@@ -560,9 +545,8 @@ func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHe
 	//}
 
 	var (
-
-		gp         = new(vm.GasPool).AddGas(blockHeader.GasLimit)
-		statedb, _ ,sn= state.New(global2.Root, bc.Statedb)
+		gp             = new(vm.GasPool).AddGas(blockHeader.GasLimit)
+		statedb, _, sn = state.New(global2.Root, bc.Statedb)
 	)
 
 	//fmt.Println("GetUpdateStatusTrie... len of txs is ", len(txs))
@@ -604,7 +588,7 @@ func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHe
 			//fmt.Println("SetTxContext")
 			statedb.SetTxContext(common.Hash(tx.TxHash), idx)
 			//fmt.Println("ApplyTransactionWithEVM")
-			res, err := ApplyTransactionWithEVM(msg, gp, statedb, vmenv,"123")
+			res, err := ApplyTransactionWithEVM(msg, gp, statedb, vmenv, "123")
 			if err != nil {
 				statedb.RevertToSnapshot(snap)
 				//TODO
@@ -612,11 +596,11 @@ func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHe
 
 				//log.Panic(err)
 			}
-			if res!=nil&&res.Err != nil {
+			if res != nil && res.Err != nil {
 				fmt.Println(res.Err)
 			}
 
-			if res!= nil {
+			if res != nil {
 				fmt.Println("使用的gas:", res.UsedGas)
 				fmt.Println("退还的gas:", res.RefundedGas)
 			}
@@ -831,7 +815,7 @@ func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHe
 
 	//hash := statedb.IntermediateRoot(false)
 
-	if sn == "new"{
+	if sn == "new" {
 
 	}
 	hash, err := statedb.Commit(blockHeader.Number, false)
@@ -1009,7 +993,7 @@ func NewEVMTxContext(msg *core.Message) vm.TxContext {
 	return ctx
 }
 
-func ApplyTransactionWithEVM(msg *core.Message, gp *vm.GasPool, statedb *state.StateDB, evm *vm.EVM,UUID string) (result *vm.ExecutionResult, err error) {
+func ApplyTransactionWithEVM(msg *core.Message, gp *vm.GasPool, statedb *state.StateDB, evm *vm.EVM, UUID string) (result *vm.ExecutionResult, err error) {
 	//if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
 	//	evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, msg.From)
 	//	if evm.Config.Tracer.OnTxEnd != nil {
@@ -1024,13 +1008,13 @@ func ApplyTransactionWithEVM(msg *core.Message, gp *vm.GasPool, statedb *state.S
 	evm.Reset(txContext, statedb)
 
 	// Apply the transaction to the current state (included in the env).
-	result, err = vm.ApplyMessage(evm, msg, gp,UUID)
+	result, err = vm.ApplyMessage(evm, msg, gp, UUID)
 	if err != nil {
-		fmt.Println("result, err = vm.ApplyMessage(evm, msg, gp,UUID)错误:"+err.Error())
+		fmt.Println("result, err = vm.ApplyMessage(evm, msg, gp,UUID)错误:" + err.Error())
 		return nil, err
 	}
-	if result.Err!=nil && result.Err.Error() !=""{
-		fmt.Println("result, err = vm.ApplyMessage(evm, msg, gp,UUID)错误:"+result.Err.Error())
+	if result.Err != nil && result.Err.Error() != "" {
+		fmt.Println("result, err = vm.ApplyMessage(evm, msg, gp,UUID)错误:" + result.Err.Error())
 		return nil, result.Err
 	}
 	//statedb.IntermediateRoot(true)
@@ -1171,7 +1155,6 @@ func (bc *BlockChain) GenerateBlock() *core.Block {
 	defer global3.Lock.Unlock()
 	global3.GlobalStateDB = nil
 
-
 	return b
 }
 
@@ -1224,8 +1207,6 @@ func (bc *BlockChain) AddBlock(b *core.Block) {
 	//	return
 	//}
 
-
-
 	// if this block is mined by the node, the transactions is no need to be handled again
 	//_, err := trie.New(trie.TrieID(common.BytesToHash(b.Header.StateRoot)), bc.Triedb)
 	_, err := trie.New(trie.TrieID(global2.Root), bc.Triedb)
@@ -1233,7 +1214,7 @@ func (bc *BlockChain) AddBlock(b *core.Block) {
 		rt := bc.GetUpdateStatusTrie(b.Body, b.Header, bc.CurrentBlock)
 		//global2.Root = rt
 		fmt.Println(bc.CurrentBlock.Header.Number+1, "the root = ", rt.Bytes())
-	} else{
+	} else {
 
 	}
 	bc.CurrentBlock = b
