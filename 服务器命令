@@ -1,0 +1,56 @@
+杀进程
+
+ps -ef | grep blockEmulator | cut -c 9-16 | xargs kill -9 & cd /home/huanglab/xbzWorkspace/brokerfi-backend-contract  & rm -rf ./record & rm -rf ./result & rm -rf ./log & rm nohup.out & rm BrokerRegistry.abi & rm BrokerRegistry.bin
+
+ps -ef | grep main.go | cut -c 9-16 | xargs kill -9
+ps -ef | grep /exe/main | cut -c 9-16 | xargs kill -9
+
+编译
+GOOS=linux & GOARCH=amd64 & go build -o ./blockEmulator_Linux_Precompile ./main.go
+
+set GOOS=windows
+set GOARCH=amd64
+
+------------------------------
+ps -ef | grep blockEmulator | cut -c 9-16 | xargs kill -9  & rm -rf ./record & rm -rf ./result & rm -rf ./log & rm nohup.out & rm -rf ./key & rm -rf ./bytecode
+GOOS=linux & GOARCH=amd64 & go build -o ./blockEmulator_Linux_Precompile ./main.go
+nohup sh ./bat_shardNum=3_NodeNum=4_mod=Broker_b2e.sh &
+tail nohup.out -f
+------------------------------
+go build -o ./blockEmulator_Windows_Precompile.exe ./main.go
+启动非supervisor节点
+nohup sh ./'bat_shardNum=8_NodeNum=4_mod=Broker_b2e.sh' &
+
+启动supervisor节点
+nohup ./blockEmulator_Linux_Precompile -c -N 4 -S 8 -m 4 &
+
+
+nohup sh ./'bat_shardNum=8_NodeNum=8_mod=Broker_b2e.sh' &
+
+nohup sh ./'bat_shardNum=2_NodeNum=4_mod=Broker_b2e.sh' &
+
+
+nohup sh ./'bat_shardNum=8_NodeNum=4_mod=Broker_b2e.sh' &
+
+
+go tool pprof http://localhost:11999/debug/pprof/allocs
+go tool pprof http://localhost:11999/debug/pprof/heap
+go tool pprof http://localhost:11999/debug/pprof/profile
+
+
+
+{
+	"functionDebugData": {
+		"@_10": {
+			"entryPoint": null,
+			"id": 10,
+			"parameterSlots": 0,
+			"returnSlots": 0
+		}
+	},
+	"generatedSources": [],
+	"linkReferences": {},
+	"object": "6080604052348015600e575f80fd5b50600a5f8190555060d8806100225f395ff3fe6080604052348015600e575f80fd5b50600436106030575f3560e01c80630dbe671f146034578063d46300fd14604e575b5f80fd5b603a6068565b60405160459190608b565b60405180910390f35b6054606d565b604051605f9190608b565b60405180910390f35b5f5481565b5f8054905090565b5f819050919050565b6085816075565b82525050565b5f602082019050609c5f830184607e565b9291505056fea2646970667358221220cb548b8437f1b5dd333044455b23d3c8d873970588f587bfb332e6b1d972795c64736f6c634300081a0033",
+	"opcodes": "PUSH1 0x80 PUSH1 0x40 MSTORE CALLVALUE DUP1 ISZERO PUSH1 0xE JUMPI PUSH0 DUP1 REVERT JUMPDEST POP PUSH1 0xA PUSH0 DUP2 SWAP1 SSTORE POP PUSH1 0xD8 DUP1 PUSH2 0x22 PUSH0 CODECOPY PUSH0 RETURN INVALID PUSH1 0x80 PUSH1 0x40 MSTORE CALLVALUE DUP1 ISZERO PUSH1 0xE JUMPI PUSH0 DUP1 REVERT JUMPDEST POP PUSH1 0x4 CALLDATASIZE LT PUSH1 0x30 JUMPI PUSH0 CALLDATALOAD PUSH1 0xE0 SHR DUP1 PUSH4 0xDBE671F EQ PUSH1 0x34 JUMPI DUP1 PUSH4 0xD46300FD EQ PUSH1 0x4E JUMPI JUMPDEST PUSH0 DUP1 REVERT JUMPDEST PUSH1 0x3A PUSH1 0x68 JUMP JUMPDEST PUSH1 0x40 MLOAD PUSH1 0x45 SWAP2 SWAP1 PUSH1 0x8B JUMP JUMPDEST PUSH1 0x40 MLOAD DUP1 SWAP2 SUB SWAP1 RETURN JUMPDEST PUSH1 0x54 PUSH1 0x6D JUMP JUMPDEST PUSH1 0x40 MLOAD PUSH1 0x5F SWAP2 SWAP1 PUSH1 0x8B JUMP JUMPDEST PUSH1 0x40 MLOAD DUP1 SWAP2 SUB SWAP1 RETURN JUMPDEST PUSH0 SLOAD DUP2 JUMP JUMPDEST PUSH0 DUP1 SLOAD SWAP1 POP SWAP1 JUMP JUMPDEST PUSH0 DUP2 SWAP1 POP SWAP2 SWAP1 POP JUMP JUMPDEST PUSH1 0x85 DUP2 PUSH1 0x75 JUMP JUMPDEST DUP3 MSTORE POP POP JUMP JUMPDEST PUSH0 PUSH1 0x20 DUP3 ADD SWAP1 POP PUSH1 0x9C PUSH0 DUP4 ADD DUP5 PUSH1 0x7E JUMP JUMPDEST SWAP3 SWAP2 POP POP JUMP INVALID LOG2 PUSH5 0x6970667358 0x22 SLT KECCAK256 0xCB SLOAD DUP12 DUP5 CALLDATACOPY CALL 0xB5 0xDD CALLER ADDRESS PREVRANDAO GASLIMIT JUMPDEST 0x23 0xD3 0xC8 0xD8 PUSH20 0x970588F587BFB332E6B1D972795C64736F6C6343 STOP ADDMOD BYTE STOP CALLER ",
+	"sourceMap": "0:168:0:-:0;;;50:37;;;;;;;;;;77:2;75:1;:4;;;;0:168;;;;;;"
+}
