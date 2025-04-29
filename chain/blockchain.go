@@ -186,8 +186,6 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 }
 
 func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.BlockHeader, bc *BlockChain, idx int, gp *vm.GasPool, UUID string) {
-	global.ExeTxLock.LockWithOwner(UUID)
-	defer global.ExeTxLock.Unlock()
 
 	if tx.IsContract && global.NodeID == 0 {
 		msg := &core.Message{

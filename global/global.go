@@ -1,8 +1,9 @@
 package global
 
 import (
-	"github.com/ethereum/go-ethereum/common"
 	"sync"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 var NodeAccount string
@@ -47,22 +48,6 @@ type OpCallCodeRes struct {
 
 var ExeTxLock OwnedMutex = *NewOwnedMutex()
 
-//
-//type OpCallRes struct {
-//	Journal []state.Wrapper
-//	Ret []byte
-//	Err string
-//	Gas uint64
-//}
-//
-//var OpCallResMap = make(map[string]OpCallRes)
-//var OpCallResMapLock sync.Mutex
-//
-//
-//
-
-
-
 // OwnedMutex 是一个带有所有权概念的锁
 type OwnedMutex struct {
 	mu    sync.Mutex
@@ -76,28 +61,6 @@ func NewOwnedMutex() *OwnedMutex {
 	m.cond = sync.NewCond(&m.mu)
 	return m
 }
-
-// LockWithOwner 使用指定的所有者字符串获取锁
-func (m *OwnedMutex) LockWithOwner(owner string) {
-	//m.mu.Lock()
-	//defer m.mu.Unlock()
-	//
-	//for m.owner != "" && m.owner != owner {
-	//	m.cond.Wait()
-	//}
-	//
-	//m.owner = owner
-}
-
-// Unlock 释放锁
-func (m *OwnedMutex) Unlock() {
-	//m.mu.Lock()
-	//defer m.mu.Unlock()
-	//
-	//m.owner = ""
-	//m.cond.Signal()
-}
-
 
 var GLobalLock sync.Mutex
 var GlobalLockMap = make(map[string]bool)

@@ -316,7 +316,6 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 // now this function can send both block and partition
 func (p *PbftConsensusNode) handleRequestOldSeq(content []byte) {
 	if p.view != p.NodeID {
-		content = make([]byte, 0)
 		return
 	}
 

@@ -13,7 +13,6 @@ import (
 	"blockEmulator/networks"
 	"blockEmulator/params"
 	"blockEmulator/shard"
-	"blockEmulator/utils"
 	"blockEmulator/vm"
 	"blockEmulator/vm/state"
 	"blockEmulator/vm/tracing"
@@ -317,8 +316,6 @@ func (p *PbftConsensusNode) handleOpCreateReq(content []byte) {
 	fmt.Println()
 	fmt.Println("创建的地址是", hex.EncodeToString(m.Addr[:]))
 	fmt.Println()
-	global.ExeTxLock.LockWithOwner(m.UUID)
-	defer global.ExeTxLock.Unlock()
 	blockContext := chain.NewEVMBlockContext(p.CurChain.CurrentBlock.Header, p.CurChain, nil)
 	statedb, _, sn := state.New(global2.Root, p.CurChain.Statedb)
 
@@ -567,9 +564,6 @@ func (p *PbftConsensusNode) handleOpStaticCallReq(content []byte) {
 		fmt.Println(err)
 	}
 
-	global.ExeTxLock.LockWithOwner(m.UUID)
-	defer global.ExeTxLock.Unlock()
-
 	blockContext := chain.NewEVMBlockContext(p.CurChain.CurrentBlock.Header, p.CurChain, nil)
 	statedb, _, sn := state.New(global2.Root, p.CurChain.Statedb)
 	snapshot := statedb.Snapshot()
@@ -596,107 +590,12 @@ func (p *PbftConsensusNode) handleOpStaticCallReq(content []byte) {
 		statedb.RevertToSnapshot(snapshot)
 		r.Err = err.Error()
 	} else {
-		//j := statedb.GetJournal().Copy()
-		//idx_ := sort.Search(len(j.ValidRevisions), func(i int) bool {
-		//	return j.ValidRevisions[i].Id >= snapshot
-		//})
-		//s1 := j.ValidRevisions[idx_].JournalIndex
-		//var w1 []state.Wrapper
-		//for i := s1; i <= len(j.Entries)-1; i++ {
-		//	w := j.Entries[i]
-		//	switch w.(type) {
-		//	case state.CreateObjectChange, *state.CreateObjectChange:
-		//		w1 = append(w1, state.Wrapper{Type: "CreateObjectChange", OriginalObj: w})
-		//	case state.CreateContractChange, *state.CreateContractChange:
-		//		w1 = append(w1, state.Wrapper{Type: "CreateContractChange", OriginalObj: w})
-		//	case state.SelfDestructChange, *state.SelfDestructChange:
-		//		w1 = append(w1, state.Wrapper{Type: "SelfDestructChange", OriginalObj: w})
-		//	case state.BalanceChange, *state.BalanceChange:
-		//		w1 = append(w1, state.Wrapper{Type: "BalanceChange", OriginalObj: w})
-		//	case state.NonceChange, *state.NonceChange:
-		//		w1 = append(w1, state.Wrapper{Type: "NonceChange", OriginalObj: w})
-		//	case state.StorageChange, *state.StorageChange:
-		//		w1 = append(w1, state.Wrapper{Type: "StorageChange", OriginalObj: w})
-		//	case state.CodeChange, *state.CodeChange:
-		//		w1 = append(w1, state.Wrapper{Type: "CodeChange", OriginalObj: w})
-		//	case state.RefundChange, *state.RefundChange:
-		//		w1 = append(w1, state.Wrapper{Type: "RefundChange", OriginalObj: w})
-		//	case state.AddLogChange, *state.AddLogChange:
-		//		w1 = append(w1, state.Wrapper{Type: "AddLogChange", OriginalObj: w})
-		//	case state.TouchChange, *state.TouchChange:
-		//		w1 = append(w1, state.Wrapper{Type: "TouchChange", OriginalObj: w})
-		//	case state.AccessListAddAccountChange, *state.AccessListAddAccountChange:
-		//		w1 = append(w1, state.Wrapper{Type: "AccessListAddAccountChange", OriginalObj: w})
-		//	case state.AccessListAddSlotChange, *state.AccessListAddSlotChange:
-		//		w1 = append(w1, state.Wrapper{Type: "AccessListAddSlotChange", OriginalObj: w})
-		//	case state.TransientStorageChange, *state.TransientStorageChange:
-		//		w1 = append(w1, state.Wrapper{Type: "TransientStorageChange", OriginalObj: w})
-		//	default:
-		//		fmt.Println("exetx error unknown type")
-		//	}
-		//
-		//}
-		//
-		//mm := new(state.ExeLogOrRollback)
-		//mm.Rollback = false
-		//mm.Log = w1
-		//
-		//bb, E := json.Marshal(mm)
-		//if E != nil {
-		//	fmt.Println(E)
-		//}
-		//bb1 := message.MergeMessage(message.COpExeLogOrRollback, bb)
-		//for i := 1; i < len(global.Ip_nodeTable[global.ShardID]); i++ {
-		//	go networks.TcpDial(bb1, global.Ip_nodeTable[global.ShardID][uint64(i)])
-		//}
 		r.Err = ""
-
 	}
 
 	r.Id = m.Id
 	r.UUID = m.UUID
 	r.Ret = ret
-	//var w []state.Wrapper
-	//entry := statedb.GetJournal().GetEntry()
-	//for _, item := range entry {
-	//	switch v := item.(type) {
-	//	case state.CreateObjectChange, *state.CreateObjectChange:
-	//		w = append(w, state.Wrapper{Type: "CreateObjectChange", OriginalObj: item})
-	//	case state.CreateContractChange, *state.CreateContractChange:
-	//		w = append(w, state.Wrapper{Type: "CreateContractChange", OriginalObj: item})
-	//	case state.SelfDestructChange, *state.SelfDestructChange:
-	//		w = append(w, state.Wrapper{Type: "SelfDestructChange", OriginalObj: item})
-	//	case state.BalanceChange, *state.BalanceChange:
-	//		w = append(w, state.Wrapper{Type: "BalanceChange", OriginalObj: item})
-	//	case state.NonceChange, *state.NonceChange:
-	//		w = append(w, state.Wrapper{Type: "NonceChange", OriginalObj: item})
-	//	case state.StorageChange, *state.StorageChange:
-	//		w = append(w, state.Wrapper{Type: "StorageChange", OriginalObj: item})
-	//	case state.CodeChange, *state.CodeChange:
-	//		w = append(w, state.Wrapper{Type: "CodeChange", OriginalObj: item})
-	//	case state.RefundChange, *state.RefundChange:
-	//		w = append(w, state.Wrapper{Type: "RefundChange", OriginalObj: item})
-	//	case state.AddLogChange, *state.AddLogChange:
-	//		w = append(w, state.Wrapper{Type: "AddLogChange", OriginalObj: item})
-	//	case state.TouchChange, *state.TouchChange:
-	//		w = append(w, state.Wrapper{Type: "TouchChange", OriginalObj: item})
-	//	case state.AccessListAddAccountChange, *state.AccessListAddAccountChange:
-	//		w = append(w, state.Wrapper{Type: "AccessListAddAccountChange", OriginalObj: item})
-	//	case state.AccessListAddSlotChange, *state.AccessListAddSlotChange:
-	//		w = append(w, state.Wrapper{Type: "AccessListAddSlotChange", OriginalObj: item})
-	//	case state.TransientStorageChange, *state.TransientStorageChange:
-	//		w = append(w, state.Wrapper{Type: "TransientStorageChange", OriginalObj: item})
-	//	default:
-	//		fmt.Println("error: type ", v)
-	//	}
-	//}
-	//r.Journal = append(r.Journal, w...)
-
-	if err != nil {
-		//r.Journal = nil
-	} else {
-
-	}
 	if sn == "new" {
 		global2.Root, _ = statedb.Commit(0, false)
 		err1 := p.CurChain.Triedb.Commit(global2.Root, false)
@@ -726,9 +625,6 @@ func (p *PbftConsensusNode) handleOpCallReq(content []byte) {
 	if err != nil {
 		fmt.Println(err)
 	}
-
-	global.ExeTxLock.LockWithOwner(m.UUID)
-	defer global.ExeTxLock.Unlock()
 
 	Str := hex.EncodeToString(m.Addr[:])
 	for true {
@@ -872,8 +768,6 @@ func (p *PbftConsensusNode) handleOpCallReq(content []byte) {
 
 	if err != nil {
 		r.Journal = nil
-	} else {
-
 	}
 	if sn == "new" {
 		global2.Root, _ = statedb.Commit(0, false)
@@ -1122,21 +1016,6 @@ func (p *PbftConsensusNode) handleQueryAcc(content []byte) {
 	balance := statedb.GetBalance(common.Address(decodeString))
 	code := statedb.GetCode(common.Address(decodeString))
 
-	//if sn =="new"{
-	//	var E1 error
-	//	global2.Root, E1 = statedb.Commit(0, false)
-	//	if E1 != nil {
-	//		fmt.Println(E1)
-	//	}
-	//	err1 := p.CurChain.Triedb.Commit(global2.Root, false)
-	//	if err1 != nil {
-	//		fmt.Println(err1)
-	//	}
-	//	global3.Lock.Lock()
-	//	global3.GlobalStateDB = nil
-	//	global3.Lock.Unlock()
-	//}
-
 	m := new(message.AccountRes)
 	m.Account = msg.Account
 	m.Balance = balance.Uint64()
@@ -1248,15 +1127,6 @@ func (p *PbftConsensusNode) handleRequestTransaction(content []byte) {
 			fmt.Println(err1)
 			break
 		}
-		//triedb := trie.NewDatabase(rawdb.NewMemoryDatabase())
-		//transactionTree := trie.NewEmpty(triedb)
-		//for _, tx := range block.Body {
-		//	transactionTree.Update(tx.TxHash, tx.Encode())
-		//}
-		//if !bytes.Equal(transactionTree.Hash().Bytes(), block.Header.TxRoot) {
-		//	fmt.Println("transaction hash does not match block header hash")
-		//	break
-		//}
 
 		for _, tx := range block.Body {
 			if tx.Isbrokertx1 || tx.Isbrokertx2 {
@@ -1265,22 +1135,10 @@ func (p *PbftConsensusNode) handleRequestTransaction(content []byte) {
 				} else if tx.FinalRecipient == crtx.AccountAddr {
 					txs = append(txs, tx)
 				}
-			} else {
-				if tx.Sender == crtx.AccountAddr {
-
-				} else if tx.Recipient == crtx.AccountAddr {
-
-				}
 			}
 		}
 
 		nowblockHash = block.Header.ParentBlockHash
-	}
-
-	if uint64(utils.Addr2Shard(crtx.AccountAddr)) == p.CurChain.ChainConfig.ShardID {
-
-	} else {
-
 	}
 
 	txc.Txs = txs
