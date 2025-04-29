@@ -11,13 +11,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"golang.org/x/crypto/sha3"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"golang.org/x/crypto/sha3"
 )
 
 func initConfig(nid, nnm, sid, snm uint64) *params.ChainConfig {
@@ -48,8 +49,6 @@ func initConfig(nid, nnm, sid, snm uint64) *params.ChainConfig {
 	return pcc
 }
 
-
-
 func BuildSupervisor(nnm, snm, mod uint64) {
 	var measureMod []string
 	if mod == 0 || mod == 2 || mod == 4 {
@@ -68,58 +67,10 @@ func BuildSupervisor(nnm, snm, mod uint64) {
 	go lsn.SupervisorTxHandling()
 	go lsn.RunHTTP()
 
-	//go func() {
-	//	time.Sleep(3000 * time.Millisecond)
-	//	contractFileName := "C:\\Users\\1\\Desktop\\blockEmulator-B2E-git\\contract\\NFT.sol"
-	//	err:=exec.Command("C:\\Users\\1\\Desktop\\blockEmulator-B2E-git\\contract\\solc-windows.exe", contractFileName, "--abi", "--bin", "-o", "C:\\Users\\1\\Desktop\\blockEmulator-B2E-git\\contract").Run()
-	//	if err != nil {
-	//		log.Panic("执行命令出错:", err)
-	//		return
-	//	}
-	//	data, err := os.ReadFile("C:\\Users\\1\\Desktop\\blockEmulator-B2E-git\\contract\\NFT.bin")
-	//	if err != nil {
-	//		fmt.Println("Error reading file:", err)
-	//		return
-	//	}
-	//	strData := string(data)
-	//	fmt.Println("File content as string:", strData)
-	//	byteData, err := hex.DecodeString(strData)
-	//	if err != nil {
-	//		log.Panic(err)
-	//	}
-	//
-	//
-	//	from:="2000000000000000000000000000000000000001"
-	//	Transaction := core.NewTransactionContract(from, "", big.NewInt(0), 1, byteData)
-	//	Transaction.GasPrice = big.NewInt(1)
-	//	Transaction.Gas = 100000000
-	//	Transaction.UUID = "1234"
-	//	var txs = []*core.Transaction{Transaction}
-	//	it := message.InjectTxs{
-	//		Txs:       txs,
-	//		ToShardID: uint64(utils.Addr2Shard(from)),
-	//	}
-	//	itByte, err := json.Marshal(it)
-	//	if err != nil {
-	//		log.Panic(err)
-	//	}
-	//	send_msg := message.MergeMessage(message.CInject, itByte)
-	//	go networks.TcpDial(send_msg, lsn.Ip_nodeTable[uint64(utils.Addr2Shard(from))][0])
-	//}()
-
 	global.ShardID = params.DeciderShard
 	global.NodeID = 0
 
-
-
-	time.Sleep(10000 * time.Millisecond)
-	//lsn.TestCrossShardContract3()
-
-
-
-
-
-	for true {
+	for {
 		time.Sleep(time.Second)
 	}
 }
@@ -272,7 +223,6 @@ func InitKey(sid int, nid int) {
 
 		if string(pubDER2) != string(block1.Bytes) {
 			panic("公钥和私钥提供的公钥不匹配")
-			return
 		}
 
 		// 打印私钥和公钥

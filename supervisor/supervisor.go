@@ -602,31 +602,6 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, gin.H{"message": "Successfully withdraw " + new(big.Int).SetUint64(profitUint64).String() + " tokens from B2E"})
 	})
 
-	//TODO
-	router.GET("queryTransactionByUserAddr", func(c *gin.Context) {
-		//d := c.MustGet("supervisor").(*Supervisor)
-		Clt := c.MustGet("clt").(*client.Client)
-		addr := c.Query("addr")
-		if addr == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Address is required"})
-			return
-		}
-
-		crtx := &message.ClientRequestTransaction{
-			AccountAddr: addr,
-			ClientIp:    Clt.IpAddr,
-		}
-		crtxByte, err := json.Marshal(crtx)
-		if err != nil {
-			log.Panic(err)
-		}
-		send_msg := message.MergeMessage(message.CClientRequestTransaction, crtxByte)
-
-		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-			go networks.TcpDial(send_msg, params.IPmap_nodeTable[sid][0])
-		}
-
-	})
 	fmt.Println(fmt.Sprintf(getMyIp()+":%d", 8545))
 
 	//r.Run(fmt.Sprintf(getMyIp()+":%d", 8545))
@@ -680,9 +655,6 @@ func getMyIp() string {
 			if ip.To4()[0] == 0xac {
 				return ip.String()
 			}
-			//if ip.To4()[0] == 0xc0 {
-			//	return ip.String()
-			//}
 		}
 	}
 	return "127.0.0.1"

@@ -16,9 +16,6 @@ func (c *Client) handleMessageByType(msg []byte) {
 	switch msgType {
 	case message.CAccountStateForClient:
 		c.handleAccountStateMsg(content)
-	case message.CAccountTransactionForClient:
-		c.handleTransactionMsg(content)
-
 	default:
 		return
 	}
@@ -63,53 +60,6 @@ func (c *Client) ClientListen() error {
 	}
 }
 
-// detail operations for each message
-//func (c *Client) handleTxOnChainProof(content []byte) {
-//	txop := new(message.TxOnChainProof)
-//	err := json.Unmarshal(content, txop)
-//	if err != nil {
-//		log.Panic()
-//	}
-//	c.clog.Clog.Printf("TxOnChainProof message from %d is received \n", txop.ShardId)
-//
-//	if !txop.IsExist {
-//		vals := []interface{}{
-//			"No data about Tx",
-//			[]byte(txop.Txhash),
-//			"is in Shard",
-//			txop.ShardId,
-//			"now.",
-//		}
-//		c.clog.Clog.Printf("%v\n\n", vals)
-//		return
-//	}
-//
-//	// check the proof
-//	proof := rawdb.NewMemoryDatabase()
-//	listLen := len(txop.KeyList)
-//	c.clog.Clog.Printf("The length of proof is %d\n", listLen)
-//	for i := 0; i < listLen; i++ {
-//		proof.Put(txop.KeyList[i], txop.ValueList[i])
-//	}
-//	if _, err := trie.VerifyProof(common.BytesToHash(txop.TxRoot), []byte(txop.Txhash), proof); err != nil {
-//		c.clog.Clog.Printf("This proof is err!\n\n")
-//		return
-//	}
-//
-//	// if proof is right then
-//	vals := []interface{}{
-//		"Tx proof of",
-//		[]byte(txop.Txhash),
-//		"in block & TxRoot",
-//		[]byte(txop.BlockHash),
-//		[]byte(txop.TxRoot),
-//		"with height",
-//		txop.BlockHeight,
-//		"is verified.",
-//	}
-//	c.clog.Clog.Printf("%v\n\n", vals)
-//}
-
 // handle account states
 func (c *Client) handleAccountStateMsg(content []byte) {
 	asc := new(message.AccountStateForClient)
@@ -117,22 +67,8 @@ func (c *Client) handleAccountStateMsg(content []byte) {
 	if err != nil {
 		log.Panic()
 	}
-	//vals := []interface{}{
-	//	"Account State of ",
-	//	"0x" + asc.AccountAddr,
-	//	"is received in block",
-	//	[]byte(asc.BlockHash),
-	//	"with height",
-	//	asc.BlockHeight,
-	//	". Its balance is ",
-	//	asc.AccountState.Balance,
-	//}
-	//c.clog.Clog.Printf("%v\n\n", vals)
+
 	c.AccountStateMapLock.Lock()
 	c.AccountStateRequestMap[asc.AccountAddr] = asc.AccountState
 	c.AccountStateMapLock.Unlock()
-}
-
-func (c *Client) handleTransactionMsg(content []byte) {
-
 }

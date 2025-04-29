@@ -5,7 +5,6 @@ package pbft_all
 import (
 	"blockEmulator/chain"
 	"blockEmulator/consensus_shard/pbft_all/pbft_log"
-	"blockEmulator/core"
 	"blockEmulator/global"
 	"blockEmulator/global2"
 	"blockEmulator/global3"
@@ -217,8 +216,6 @@ func (p *PbftConsensusNode) handleMessage(msg []byte) {
 		p.WaitToStop()
 	case message.CClientRequestAccountState:
 		p.handleRequestAccountState(content)
-	case message.CClientRequestTransaction:
-		p.handleRequestTransaction(content)
 	case message.CResponseNodeAccount:
 		go p.handleResponseNodeAcc(content)
 	case message.CQueryNodeAccount:
@@ -1101,57 +1098,6 @@ func (p *PbftConsensusNode) handleRequestAccountState(content []byte) {
 
 	// send message
 	go networks.TcpDial(send_msg, cras.ClientIp)
-}
-
-// TODO
-func (p *PbftConsensusNode) handleRequestTransaction(content []byte) {
-	crtx := new(message.ClientRequestTransaction)
-	err := json.Unmarshal(content, crtx)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	txc := &message.AccountTransactionsForClient{
-		AccountAddr: crtx.AccountAddr,
-		ShardID:     int(p.CurChain.ChainConfig.ShardID),
-		Txs:         nil,
-	}
-
-	txs := make([]*core.Transaction, 0)
-	nowheight := p.CurChain.CurrentBlock.Header.Number
-	nowblockHash := p.CurChain.CurrentBlock.Hash
-
-	for ; nowheight > 0; nowheight-- {
-		block, err1 := p.CurChain.Storage.GetBlock(nowblockHash)
-		if err1 != nil {
-			fmt.Println(err1)
-			break
-		}
-
-		for _, tx := range block.Body {
-			if tx.Isbrokertx1 || tx.Isbrokertx2 {
-				if tx.OriginalSender == crtx.AccountAddr {
-					txs = append(txs, tx)
-				} else if tx.FinalRecipient == crtx.AccountAddr {
-					txs = append(txs, tx)
-				}
-			}
-		}
-
-		nowblockHash = block.Header.ParentBlockHash
-	}
-
-	txc.Txs = txs
-
-	txcByte, err := json.Marshal(txc)
-	if err != nil {
-		log.Panic(err)
-	}
-	send_msg := message.MergeMessage(message.CAccountTransactionForClient, txcByte)
-
-	// send message
-	go networks.TcpDial(send_msg, crtx.ClientIp)
-
 }
 
 // when received stop
