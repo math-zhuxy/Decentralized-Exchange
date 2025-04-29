@@ -21,7 +21,6 @@ import (
 	"blockEmulator/vm/triedb"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -160,7 +159,6 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 	//hash := statedb.IntermediateRoot(false)
 
 	var hash common.Hash
-	var err error
 	if sn == "new" {
 
 		//hash, err = statedb.Commit(blockHeader.Number, false)
@@ -182,10 +180,6 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 		global3.Lock.Lock()
 		global3.GlobalStateDB = nil
 		global3.Lock.Unlock()
-	}
-
-	if err != nil {
-		fmt.Println(err)
 	}
 
 	return hash
@@ -545,8 +539,8 @@ func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHe
 	//}
 
 	var (
-		gp             = new(vm.GasPool).AddGas(blockHeader.GasLimit)
-		statedb, _, sn = state.New(global2.Root, bc.Statedb)
+		gp            = new(vm.GasPool).AddGas(blockHeader.GasLimit)
+		statedb, _, _ = state.New(global2.Root, bc.Statedb)
 	)
 
 	//fmt.Println("GetUpdateStatusTrie... len of txs is ", len(txs))
@@ -800,22 +794,6 @@ func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHe
 		}
 
 		statedb.IntermediateRoot(true)
-
-	}
-
-	//rt, ns := st.Commit(false)
-	//err = bc.Triedb.Update(trienode.NewWithNodeSet(ns))
-	//if err != nil {
-	//	log.Panic()
-	//}
-	//err = bc.Triedb.Commit(rt, false)
-	//if err != nil {
-	//	log.Panic(err)
-	//}
-
-	//hash := statedb.IntermediateRoot(false)
-
-	if sn == "new" {
 
 	}
 	hash, err := statedb.Commit(blockHeader.Number, false)
@@ -1214,8 +1192,6 @@ func (bc *BlockChain) AddBlock(b *core.Block) {
 		rt := bc.GetUpdateStatusTrie(b.Body, b.Header, bc.CurrentBlock)
 		//global2.Root = rt
 		fmt.Println(bc.CurrentBlock.Header.Number+1, "the root = ", rt.Bytes())
-	} else {
-
 	}
 	bc.CurrentBlock = b
 	bc.Storage.AddBlock(b)
@@ -1287,14 +1263,6 @@ func NewBlockChain(cc *params.ChainConfig, db ethdb.Database, Iptable map[uint64
 
 // check a block is valid or not in this blockchain config
 func (bc *BlockChain) IsValidBlock(b *core.Block) error {
-	return nil
-	if string(b.Header.ParentBlockHash) != string(bc.CurrentBlock.Hash) {
-		fmt.Println("the parentblock hash is not equal to the current block hash")
-		return errors.New("the parentblock hash is not equal to the current block hash")
-	} else if string(GetTxTreeRoot(b.Body)) != string(b.Header.TxRoot) {
-		fmt.Println("the transaction root is wrong")
-		return errors.New("the transaction root is wrong")
-	}
 	return nil
 }
 
