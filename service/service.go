@@ -4,20 +4,24 @@ import (
 	"blockEmulator/client"
 	"blockEmulator/core"
 	"blockEmulator/mytool"
+	"blockEmulator/params"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"math/big"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type InputTransaction struct {
-	From  string `json:"from" binding:"required"`
-	To    string `json:"to" binding:"required"`
-	Value string `json:"value" binding:"required"`
-	Fee   string `json:"fee" binding:"required"`
+	From   string `json:"from" binding:"required"`
+	To     string `json:"to" binding:"required"`
+	Value  string `json:"value" binding:"required"`
+	Fee    string `json:"fee" binding:"required"`
+	TXType string `json:"type" binding:"required"`
 }
 
 var (
@@ -31,6 +35,10 @@ func SendTx2Network(c *gin.Context) {
 	// 尝试绑定请求体到 it 结构
 	if err := c.ShouldBind(&it); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+	if !slices.Contains(params.Transaction_Types, it.TXType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx Type"})
 		return
 	}
 
@@ -49,11 +57,6 @@ func SendTx2Network(c *gin.Context) {
 	uintFee, err := strconv.ParseUint(it.Fee, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid fee"})
-		return
-	}
-
-	if uintFee < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid value"})
 		return
 	}
 
@@ -125,7 +128,7 @@ func SendTx2Network(c *gin.Context) {
 	mytool.Nonce++
 	mytool.Mutex2.Unlock()
 
-	tx := core.NewTransaction(it.From, it.To, val, nonce, Fee)
+	tx := core.NewTransaction(it.From, it.To, val, nonce, Fee, it.TXType)
 	//tx.Isimportant = true
 
 	mytool.Mutex1.Lock()

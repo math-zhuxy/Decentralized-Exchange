@@ -9,13 +9,16 @@ import (
 	"os"
 )
 
+type ShardBalanceInt map[string]map[uint64]*big.Int
+type ShardBalanceFloat map[string]map[uint64]*big.Float
+
 type Broker struct {
 	BrokerRawMegs  map[string]*message.BrokerRawMeg
 	ChainConfig    *params.ChainConfig
 	BrokerAddress  []string
-	BrokerBalance  map[string]map[uint64]*big.Int
-	LockBalance    map[string]map[uint64]*big.Int
-	ProfitBalance  map[string]map[uint64]*big.Float
+	BrokerBalance  map[string]ShardBalanceInt
+	LockBalance    map[string]ShardBalanceInt
+	ProfitBalance  map[string]ShardBalanceFloat
 	RawTx2BrokerTx map[string][]string
 	Brokerage      *big.Float
 }
@@ -25,9 +28,14 @@ func (b *Broker) NewBroker(pcc *params.ChainConfig) {
 	b.RawTx2BrokerTx = make(map[string][]string)
 	b.ChainConfig = pcc
 	b.BrokerAddress = b.initBrokerAddr(params.BrokerNum)
-	b.BrokerBalance = b.initBrokerBalance(params.Init_broker_Balance)
-	b.LockBalance = b.initBrokerBalance(big.NewInt(0))
-	b.ProfitBalance = b.initFloatBalance(big.NewFloat(0))
+	b.BrokerBalance = make(map[string]ShardBalanceInt)
+	b.LockBalance = make(map[string]ShardBalanceInt)
+	b.ProfitBalance = make(map[string]ShardBalanceFloat)
+	for _, val := range params.Transaction_Types {
+		b.BrokerBalance[val] = b.initBrokerBalance(params.Init_broker_Balance)
+		b.LockBalance[val] = b.initBrokerBalance(big.NewInt(0))
+		b.ProfitBalance[val] = b.initFloatBalance(big.NewFloat(0))
+	}
 	b.Brokerage = big.NewFloat(params.Brokerage)
 }
 
@@ -41,7 +49,6 @@ func (b *Broker) IsBroker(address string) bool {
 }
 
 func (b *Broker) initBrokerAddr(num int) []string {
-	b.BrokerBalance = make(map[string]map[uint64]*big.Int)
 	brokerAddress := make([]string, 0)
 	filePath := `./broker/broker`
 	readFile, err := os.Open(filePath)

@@ -19,11 +19,12 @@ type ChainConfig struct {
 var (
 	DeciderShard = uint64(0xffffffff)
 	//Init_Balance, _        = new(big.Int).SetString("100000000000000000000000000000000000000000000", 10)
-	Init_Balance, _        = new(big.Int).SetString("1000000000", 10)
+	Init_Balance, _ = new(big.Int).SetString("1000000000", 10)
 
- 	Init_broker_Balance, _ = new(big.Int).SetString("100000000000", 10)
+	Init_broker_Balance, _ = new(big.Int).SetString("100000000000", 10)
 	IPmap_nodeTable        = make(map[uint64]map[uint64]string)
 	CommitteeMethod        = []string{"CLPA_Broker", "CLPA", "Broker", "Relay", "Broker_b2e"}
 	MeasureBrokerMod       = []string{"TPS_Broker", "TCL_Broker", "CrossTxRate_Broker", "TxNumberCount_Broker"}
 	MeasureRelayMod        = []string{"TPS_Relay", "TCL_Relay", "CrossTxRate_Relay", "TxNumberCount_Relay"}
+	Transaction_Types      = []string{"BKC", "Badge"}
 )

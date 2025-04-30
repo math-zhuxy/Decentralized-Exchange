@@ -22,6 +22,7 @@ type Transaction struct {
 	Nonce     uint64
 	Signature []byte // not implemented now.
 	Value     *big.Int
+	Txtype    string
 	Fee       *big.Int
 	TxHash    []byte
 
@@ -91,11 +92,12 @@ func DecodeTx(to_decode []byte) *Transaction {
 }
 
 // new a transaction
-func NewTransaction(sender, recipient string, value *big.Int, nonce uint64, fee *big.Int) *Transaction {
+func NewTransaction(sender, recipient string, value *big.Int, nonce uint64, fee *big.Int, tx_type string) *Transaction {
 	tx := &Transaction{
 		Sender:    sender,
 		Recipient: recipient,
 		Value:     value,
+		Txtype:    tx_type,
 		Nonce:     nonce,
 		Fee:       fee,
 	}

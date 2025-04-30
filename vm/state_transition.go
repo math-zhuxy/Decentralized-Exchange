@@ -13,16 +13,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"log"
 	"math"
 
-	"github.com/holiman/uint256"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
+
 	"math/big"
+
+	"github.com/holiman/uint256"
 )
 
-func ApplyMessage(evm *EVM, msg *core.Message, gp *GasPool,UUID string) (*ExecutionResult, error) {
+func ApplyMessage(evm *EVM, msg *core.Message, gp *GasPool, UUID string) (*ExecutionResult, error) {
 	return NewStateTransition(evm, msg, gp).TransitionDb(UUID)
 }
 
@@ -32,7 +34,6 @@ type ExecutionResult struct {
 	Err          error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData   []byte // Returned data from evm(function result or data supplied with revert opcode)
 	ContractAddr common.Address
-
 }
 type StateTransition struct {
 	gp           *GasPool
@@ -239,7 +240,7 @@ func isZeroArray(a [20]byte) bool {
 }
 
 func IntrinsicGas(data []byte, isContractCreation bool) (uint64, error) {
-	return 0,nil
+	return 0, nil
 
 	// Set the starting gas for the raw transaction
 	var gas uint64
@@ -378,12 +379,12 @@ func (st *StateTransition) TransitionDb(UUID string) (*ExecutionResult, error) {
 	var contractAddr common.Address
 	if contractCreation {
 		//创建新合约
-		ret, contractAddr, st.gasRemaining, vmerr = st.evm.Create(sender, msg.Data, st.gasRemaining, value,UUID)
+		ret, contractAddr, st.gasRemaining, vmerr = st.evm.Create(sender, msg.Data, st.gasRemaining, value, UUID)
 	} else {
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From, st.state.GetNonce(sender.Address())+1)
 		//调用合约
-		ret, st.gasRemaining, vmerr = st.evm.Call(sender, st.to(), msg.Data, st.gasRemaining, value,UUID)
+		ret, st.gasRemaining, vmerr = st.evm.Call(sender, st.to(), msg.Data, st.gasRemaining, value, UUID)
 	}
 
 	var gasRefund uint64
@@ -418,7 +419,7 @@ func (st *StateTransition) TransitionDb(UUID string) (*ExecutionResult, error) {
 
 		sid = int(Get_PartitionMap(coinbasehex))
 
-		tx := core.NewTransaction(supervisor.Broker2EarnAddr, coinbasehex, big.NewInt(int64(fee.Uint64())), 1, big.NewInt(1))
+		tx := core.NewTransaction(supervisor.Broker2EarnAddr, coinbasehex, big.NewInt(int64(fee.Uint64())), 1, big.NewInt(1), "ANY")
 		txs := make([]*core.Transaction, 0)
 		txs = append(txs, tx)
 		it := message.InjectTxs{

@@ -42,9 +42,8 @@ type BrokerCommitteeMod_b2e struct {
 	Broker                *broker.Broker
 	brokerConfirm1Pool    map[string]*message.Mag1Confirm
 	brokerConfirm2Pool    map[string]*message.Mag2Confirm
-	restBrokerRawMegPool  []*message.BrokerRawMeg
-	restBrokerRawMegPool2 []*message.BrokerRawMeg
-	brokerTxPool          []*core.Transaction
+	restBrokerRawMegPool  map[string][]*message.BrokerRawMeg
+	restBrokerRawMegPool2 map[string][]*message.BrokerRawMeg
 	BrokerModuleLock      sync.Mutex
 	BrokerBalanceLock     sync.Mutex
 
@@ -98,6 +97,13 @@ func NewBrokerCommitteeMod_b2e(Ip_nodeTable map[uint64]map[uint64]string, Ss *si
 		block_txs[uint64(i)] = append(block_txs[uint64(i)], "txExcuted, broker1Txs, broker2Txs, allocatedTxs")
 	}
 
+	rest_meg_pool := make(map[string][]*message.BrokerRawMeg)
+	rest_meg_pool2 := make(map[string][]*message.BrokerRawMeg)
+	for _, val := range params.Transaction_Types {
+		rest_meg_pool[val] = make([]*message.BrokerRawMeg, 0)
+		rest_meg_pool2[val] = make([]*message.BrokerRawMeg, 0)
+	}
+
 	return &BrokerCommitteeMod_b2e{
 		csvPath:               csvFilePath,
 		dataTotalNum:          dataNum,
@@ -106,9 +112,8 @@ func NewBrokerCommitteeMod_b2e(Ip_nodeTable map[uint64]map[uint64]string, Ss *si
 		dataTxNums:            0,
 		brokerConfirm1Pool:    make(map[string]*message.Mag1Confirm),
 		brokerConfirm2Pool:    make(map[string]*message.Mag2Confirm),
-		restBrokerRawMegPool:  make([]*message.BrokerRawMeg, 0),
-		restBrokerRawMegPool2: make([]*message.BrokerRawMeg, 0),
-		brokerTxPool:          make([]*core.Transaction, 0),
+		restBrokerRawMegPool:  rest_meg_pool,
+		restBrokerRawMegPool2: rest_meg_pool2,
 		Broker:                broker,
 		IpNodeTable:           Ip_nodeTable,
 		Ss:                    Ss,
@@ -181,7 +186,7 @@ func (bcm *BrokerCommitteeMod_b2e) txSending(txlist []*core.Transaction) {
 var AddressSet []string
 var mu sync.Mutex
 
-func getRandomTxs(size int) []*core.Transaction {
+func getRandomTxs(size int, tx_type string) []*core.Transaction {
 	if len(AddressSet) == 0 {
 		mu.Lock()
 		if len(AddressSet) == 0 {
@@ -204,7 +209,14 @@ func getRandomTxs(size int) []*core.Transaction {
 		sid := utils.Addr2Shard(sender)
 		UUID := strconv.Itoa(sid) + "-" + uuid.New().String()
 
-		tx := core.NewTransaction(sender, recever, new(big.Int).SetInt64(int64(1+rand2.Intn(1000))), uint64(123), new(big.Int).SetInt64(int64(1+rand2.Intn(20))))
+		tx := core.NewTransaction(
+			sender,
+			recever,
+			new(big.Int).SetInt64(int64(1+rand2.Intn(1000))),
+			uint64(123),
+			new(big.Int).SetInt64(int64(1+rand2.Intn(20))),
+			tx_type,
+		)
 		tx.UUID = UUID
 		txs = append(txs, tx)
 	}
@@ -244,10 +256,11 @@ func (bcm *BrokerCommitteeMod_b2e) MsgSendingControl() {
 		for {
 			time.Sleep(time.Millisecond * 1000)
 
-			txs := getRandomTxs(100)
-			itx := bcm.dealTxByBroker(txs)
-			//bcm.BrokerModuleLock.Unlock()
-			bcm.txSending(itx)
+			for _, val := range params.Transaction_Types {
+				bkc_txs := getRandomTxs(100, val)
+				bkc_itx := bcm.dealTxByBroker(bkc_txs, val)
+				bcm.txSending(bkc_itx)
+			}
 
 		}
 	}()
@@ -262,17 +275,18 @@ func (bcm *BrokerCommitteeMod_b2e) MsgSendingControl() {
 			continue
 		}
 
-		queueCopy := make([]*core.Transaction, len(mytool.UserRequestB2EQueue))
-		copy(queueCopy, mytool.UserRequestB2EQueue)
+		for _, tx_type := range params.Transaction_Types {
+			queueCopy := make([]*core.Transaction, 0)
+			for _, transaction := range mytool.UserRequestB2EQueue {
+				if transaction.Txtype == tx_type {
+					queueCopy = append(queueCopy, transaction)
+				}
+			}
+			mytool.Mutex1.Unlock()
+			itx := bcm.dealTxByBroker2(queueCopy, tx_type)
+			bcm.txSending(itx)
+		}
 		mytool.UserRequestB2EQueue = mytool.UserRequestB2EQueue[:0]
-
-		mytool.Mutex1.Unlock()
-
-		//bcm.BrokerModuleLock.Lock()
-		itx := bcm.dealTxByBroker2(queueCopy)
-		//bcm.BrokerModuleLock.Unlock()
-		bcm.txSending(itx)
-
 	}
 
 }
@@ -300,17 +314,28 @@ func (bcm *BrokerCommitteeMod_b2e) HandleBlockInfo(b *message.BlockInfoMsg) {
 			continue
 		}
 
-		if bcm.Broker.LockBalance[brokeraddress][rSid].Cmp(tx.Value) < 0 {
+		tx_type := tx.Txtype
+
+		if bcm.Broker.LockBalance[tx_type][brokeraddress][rSid].Cmp(tx.Value) < 0 {
 			continue
 		}
-		bcm.Broker.LockBalance[brokeraddress][rSid].Sub(bcm.Broker.LockBalance[brokeraddress][rSid], tx.Value)
-		bcm.Broker.BrokerBalance[brokeraddress][sSid].Add(bcm.Broker.BrokerBalance[brokeraddress][sSid], tx.Value)
+		bcm.Broker.LockBalance[tx_type][brokeraddress][rSid].Sub(
+			bcm.Broker.LockBalance[tx_type][brokeraddress][rSid],
+			tx.Value,
+		)
+		bcm.Broker.BrokerBalance[tx_type][brokeraddress][sSid].Add(
+			bcm.Broker.BrokerBalance[tx_type][brokeraddress][sSid],
+			tx.Value,
+		)
 
 		fee := new(big.Float).SetInt64(tx.Fee.Int64())
 
 		fee = fee.Mul(fee, bcm.Broker.Brokerage)
 
-		bcm.Broker.ProfitBalance[brokeraddress][sSid].Add(bcm.Broker.ProfitBalance[brokeraddress][sSid], fee)
+		bcm.Broker.ProfitBalance[tx_type][brokeraddress][sSid].Add(
+			bcm.Broker.ProfitBalance[tx_type][brokeraddress][sSid],
+			fee,
+		)
 
 	}
 	//bcm.add_result()
@@ -342,13 +367,13 @@ func (bcm *BrokerCommitteeMod_b2e) createConfirm(txs []*core.Transaction) {
 	}
 }
 
-func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker(txs []*core.Transaction) (itxs []*core.Transaction) {
+func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker(txs []*core.Transaction, tx_type string) (itxs []*core.Transaction) {
 	bcm.BrokerBalanceLock.Lock()
 	fmt.Println("dealTxByBroker:", len(txs))
 	itxs = make([]*core.Transaction, 0)
 	brokerRawMegs := make([]*message.BrokerRawMeg, 0)
-	brokerRawMegs = append(brokerRawMegs, bcm.restBrokerRawMegPool...)
-	bcm.restBrokerRawMegPool = make([]*message.BrokerRawMeg, 0)
+	brokerRawMegs = append(brokerRawMegs, bcm.restBrokerRawMegPool[tx_type]...)
+	bcm.restBrokerRawMegPool[tx_type] = make([]*message.BrokerRawMeg, 0)
 
 	//println("0brokerSize ", len(brokerRawMegs))
 	for _, tx := range txs {
@@ -389,17 +414,13 @@ func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker(txs []*core.Transaction) (itxs
 
 		brokerRawMegs = brokerRawMegs[:1000]
 	}
+	alloctedBrokerRawMegs, restBrokerRawMeg := Broker2Earn.B2E(brokerRawMegs, bcm.Broker.BrokerBalance[tx_type])
+	bcm.restBrokerRawMegPool[tx_type] = append(bcm.restBrokerRawMegPool[tx_type], restBrokerRawMeg...)
 
-	//println("1brokerSize ", len(brokerRawMegs))
-	now := time.Now()
-	alloctedBrokerRawMegs, restBrokerRawMeg := Broker2Earn.B2E(brokerRawMegs, bcm.Broker.BrokerBalance)
-	println("consume time(millsec.) ", time.Since(now).Milliseconds())
-	bcm.restBrokerRawMegPool = append(bcm.restBrokerRawMegPool, restBrokerRawMeg...)
-
-	allocatedTxs := bcm.GenerateAllocatedTx(alloctedBrokerRawMegs)
+	allocatedTxs := bcm.GenerateAllocatedTx(alloctedBrokerRawMegs, tx_type)
 	if len(alloctedBrokerRawMegs) != 0 {
-		bcm.handleAllocatedTx(allocatedTxs)
-		bcm.lockToken(alloctedBrokerRawMegs)
+		bcm.handleAllocatedTx(allocatedTxs, tx_type)
+		bcm.lockToken(alloctedBrokerRawMegs, tx_type)
 		bcm.BrokerBalanceLock.Unlock()
 		bcm.handleBrokerRawMag(alloctedBrokerRawMegs)
 	} else {
@@ -408,13 +429,13 @@ func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker(txs []*core.Transaction) (itxs
 	return itxs
 }
 
-func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker2(txs []*core.Transaction) (itxs []*core.Transaction) {
+func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker2(txs []*core.Transaction, tx_type string) (itxs []*core.Transaction) {
 	bcm.BrokerBalanceLock.Lock()
 	fmt.Println("dealTxByBroker:", len(txs))
 	itxs = make([]*core.Transaction, 0)
 	brokerRawMegs := make([]*message.BrokerRawMeg, 0)
-	brokerRawMegs = append(brokerRawMegs, bcm.restBrokerRawMegPool2...)
-	bcm.restBrokerRawMegPool2 = make([]*message.BrokerRawMeg, 0)
+	brokerRawMegs = append(brokerRawMegs, bcm.restBrokerRawMegPool2[tx_type]...)
+	bcm.restBrokerRawMegPool2[tx_type] = make([]*message.BrokerRawMeg, 0)
 
 	//println("0brokerSize ", len(brokerRawMegs))
 	for _, tx := range txs {
@@ -450,16 +471,12 @@ func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker2(txs []*core.Transaction) (itx
 			itxs = append(itxs, tx)
 		}
 	}
-
-	//println("1brokerSize ", len(brokerRawMegs))
-	now := time.Now()
-	alloctedBrokerRawMegs, restBrokerRawMeg := Broker2Earn.B2E(brokerRawMegs, bcm.Broker.BrokerBalance)
-	println("consume time(millsec.) ", time.Since(now).Milliseconds())
-	bcm.restBrokerRawMegPool2 = append(bcm.restBrokerRawMegPool2, restBrokerRawMeg...)
-	allocatedTxs := bcm.GenerateAllocatedTx(alloctedBrokerRawMegs)
+	alloctedBrokerRawMegs, restBrokerRawMeg := Broker2Earn.B2E(brokerRawMegs, bcm.Broker.BrokerBalance[tx_type])
+	bcm.restBrokerRawMegPool2[tx_type] = append(bcm.restBrokerRawMegPool2[tx_type], restBrokerRawMeg...)
+	allocatedTxs := bcm.GenerateAllocatedTx(alloctedBrokerRawMegs, tx_type)
 	if len(alloctedBrokerRawMegs) != 0 {
-		bcm.handleAllocatedTx(allocatedTxs)
-		bcm.lockToken(alloctedBrokerRawMegs)
+		bcm.handleAllocatedTx(allocatedTxs, tx_type)
+		bcm.lockToken(alloctedBrokerRawMegs, tx_type)
 		bcm.BrokerBalanceLock.Unlock()
 		bcm.handleBrokerRawMag(alloctedBrokerRawMegs)
 	} else {
@@ -468,7 +485,7 @@ func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker2(txs []*core.Transaction) (itx
 	return itxs
 }
 
-func (bcm *BrokerCommitteeMod_b2e) lockToken(alloctedBrokerRawMegs []*message.BrokerRawMeg) {
+func (bcm *BrokerCommitteeMod_b2e) lockToken(alloctedBrokerRawMegs []*message.BrokerRawMeg, tx_type string) {
 	//bcm.BrokerBalanceLock.Lock()
 
 	for _, brokerRawMeg := range alloctedBrokerRawMegs {
@@ -480,30 +497,42 @@ func (bcm *BrokerCommitteeMod_b2e) lockToken(alloctedBrokerRawMegs []*message.Br
 			continue
 		}
 
-		bcm.Broker.LockBalance[brokerAddress][rSid].Add(bcm.Broker.LockBalance[brokerAddress][rSid], tx.Value)
-		bcm.Broker.BrokerBalance[brokerAddress][rSid].Sub(bcm.Broker.BrokerBalance[brokerAddress][rSid], tx.Value)
+		bcm.Broker.LockBalance[tx_type][brokerAddress][rSid].Add(
+			bcm.Broker.LockBalance[tx_type][brokerAddress][rSid],
+			tx.Value,
+		)
+		bcm.Broker.BrokerBalance[tx_type][brokerAddress][rSid].Sub(
+			bcm.Broker.BrokerBalance[tx_type][brokerAddress][rSid],
+			tx.Value,
+		)
 	}
 
 	//bcm.BrokerBalanceLock.Unlock()
 }
-func (bcm *BrokerCommitteeMod_b2e) handleAllocatedTx(alloctedTx map[uint64][]*core.Transaction) {
+func (bcm *BrokerCommitteeMod_b2e) handleAllocatedTx(alloctedTx map[uint64][]*core.Transaction, tx_type string) {
 
 	//bcm.BrokerBalanceLock.Lock()
 
 	for shardId, txs := range alloctedTx {
 		for _, tx := range txs {
 			if tx.IsAllocatedSender {
-				bcm.Broker.BrokerBalance[tx.Sender][shardId].Sub(bcm.Broker.BrokerBalance[tx.Sender][shardId], tx.Value)
+				bcm.Broker.BrokerBalance[tx_type][tx.Sender][shardId].Sub(
+					bcm.Broker.BrokerBalance[tx_type][tx.Sender][shardId],
+					tx.Value,
+				)
 			}
 			if tx.IsAllocatedRecipent {
-				bcm.Broker.BrokerBalance[tx.Recipient][shardId].Add(bcm.Broker.BrokerBalance[tx.Recipient][shardId], tx.Value)
+				bcm.Broker.BrokerBalance[tx_type][tx.Recipient][shardId].Add(
+					bcm.Broker.BrokerBalance[tx_type][tx.Recipient][shardId],
+					tx.Value,
+				)
 			}
 		}
 	}
 
 }
 
-func (bcm *BrokerCommitteeMod_b2e) GenerateAllocatedTx(alloctedBrokerRawMegs []*message.BrokerRawMeg) map[uint64][]*core.Transaction {
+func (bcm *BrokerCommitteeMod_b2e) GenerateAllocatedTx(alloctedBrokerRawMegs []*message.BrokerRawMeg, tx_type string) map[uint64][]*core.Transaction {
 	//bcm.Broker.BrokerBalance
 	brokerNewBalance := make(map[string]map[uint64]*big.Int)
 	brokerChange := make(map[string]map[uint64]*big.Int)
@@ -516,7 +545,7 @@ func (bcm *BrokerCommitteeMod_b2e) GenerateAllocatedTx(alloctedBrokerRawMegs []*
 	}
 
 	//bcm.BrokerBalanceLock.Lock()
-	for brokerAddress, shardMap := range bcm.Broker.BrokerBalance {
+	for brokerAddress, shardMap := range bcm.Broker.BrokerBalance[tx_type] {
 		brokerNewBalance[brokerAddress] = make(map[uint64]*big.Int)
 		brokerChange[brokerAddress] = make(map[uint64]*big.Int)
 		brokerPeekChange[brokerAddress] = make(map[uint64]*big.Int)
@@ -577,7 +606,6 @@ func (bcm *BrokerCommitteeMod_b2e) GenerateAllocatedTx(alloctedBrokerRawMegs []*
 
 	}
 	// generate allocated tx
-
 	for brokerAddress, shardMap := range brokerChange {
 		for shardId := range shardMap {
 
@@ -586,7 +614,14 @@ func (bcm *BrokerCommitteeMod_b2e) GenerateAllocatedTx(alloctedBrokerRawMegs []*
 			if diff.Cmp(big.NewInt(0)) == 0 {
 				continue
 			}
-			tx := core.NewTransaction(brokerAddress, brokerAddress, new(big.Int).Abs(diff), uint64(bcm.nowDataNum), big.NewInt(0))
+			tx := core.NewTransaction(
+				brokerAddress,
+				brokerAddress,
+				new(big.Int).Abs(diff),
+				uint64(bcm.nowDataNum),
+				big.NewInt(0),
+				tx_type,
+			)
 
 			bcm.nowDataNum++
 			if diff.Cmp(big.NewInt(0)) < 0 {
@@ -607,7 +642,7 @@ func (bcm *BrokerCommitteeMod_b2e) handleBrokerType1Mes(brokerType1Megs []*messa
 	tx1s := make([]*core.Transaction, 0)
 	for _, brokerType1Meg := range brokerType1Megs {
 		ctx := brokerType1Meg.RawMeg.Tx
-		tx1 := core.NewTransaction(ctx.Sender, brokerType1Meg.Broker, ctx.Value, ctx.Nonce, ctx.Fee)
+		tx1 := core.NewTransaction(ctx.Sender, brokerType1Meg.Broker, ctx.Value, ctx.Nonce, ctx.Fee, ctx.Txtype)
 		tx1.OriginalSender = ctx.Sender
 		tx1.FinalRecipient = ctx.Recipient
 		tx1.RawTxHash = make([]byte, len(ctx.TxHash))
@@ -631,7 +666,7 @@ func (bcm *BrokerCommitteeMod_b2e) handleBrokerType2Mes(brokerType2Megs []*messa
 	tx2s := make([]*core.Transaction, 0)
 	for _, mes := range brokerType2Megs {
 		ctx := mes.RawMeg.Tx
-		tx2 := core.NewTransaction(mes.Broker, ctx.Recipient, ctx.Value, ctx.Nonce, ctx.Fee)
+		tx2 := core.NewTransaction(mes.Broker, ctx.Recipient, ctx.Value, ctx.Nonce, ctx.Fee, ctx.Txtype)
 		tx2.OriginalSender = ctx.Sender
 		tx2.FinalRecipient = ctx.Recipient
 		tx2.RawTxHash = make([]byte, len(ctx.TxHash))
