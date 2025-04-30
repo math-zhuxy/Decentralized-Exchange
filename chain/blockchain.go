@@ -8,8 +8,6 @@ import (
 	"blockEmulator/global"
 	"blockEmulator/global2"
 	"blockEmulator/global3"
-	"blockEmulator/message"
-	"blockEmulator/networks"
 	"blockEmulator/params"
 	"blockEmulator/storage"
 	"blockEmulator/utils"
@@ -20,11 +18,9 @@ import (
 	"blockEmulator/vm/trie/trienode"
 	"blockEmulator/vm/triedb"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
-	"sort"
 	"strconv"
 	"time"
 
@@ -81,15 +77,6 @@ func (bc *BlockChain) Get_PartitionMap(key string) uint64 {
 // Send a transaction to the pool (need to decide which pool should be sended)
 func (bc *BlockChain) SendTx2Pool(txs []*core.Transaction) {
 	bc.Txpool.AddTxs2Pool(txs)
-}
-
-func isZeroArray(a [20]byte) bool {
-	for _, v := range a {
-		if v != 0 {
-			return false
-		}
-	}
-	return true
 }
 
 func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *core.BlockHeader, parentBlock *core.Block) common.Hash {
@@ -153,200 +140,6 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 }
 
 func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.BlockHeader, bc *BlockChain, idx int, gp *vm.GasPool, UUID string) {
-
-	if tx.IsContract && global.NodeID == 0 {
-		msg := &core.Message{
-			Nonce:            tx.Nonce, //目前是按交易递增的，实际是按sender递增的
-			GasLimit:         tx.Gas,
-			GasPrice:         new(big.Int).Set(tx.GasPrice),
-			GasFeeCap:        new(big.Int).Set(tx.GasPrice),
-			GasTipCap:        new(big.Int).Set(tx.GasPrice),
-			To:               tx.To,
-			Value:            new(big.Int).Set(tx.Value),
-			Data:             tx.Data,
-			AccessList:       nil,
-			SkipNonceChecks:  false,
-			SkipFromEOACheck: false,
-			BlobHashes:       nil,
-			BlobGasFeeCap:    nil,
-			From:             tx.From,
-		}
-
-		fmt.Println("gasprice为:", msg.GasPrice)
-		fmt.Println("gaslimit为:", msg.GasLimit)
-
-		var snap = statedb.Snapshot()
-
-		//fmt.Println("NewEVMBlockContext")
-		blockContext := NewEVMBlockContext(blockHeader, bc, nil)
-
-		blockContext.Coinbase = blockHeader.Coinbase
-		//txContext := NewEVMTxContext(msg)
-		//fmt.Println("NewEVM")
-		vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, nil, vm.Config{})
-		//fmt.Println("SetTxContext")
-		statedb.SetTxContext(common.Hash(tx.TxHash), idx)
-		//fmt.Println("ApplyTransactionWithEVM")
-		res, err := ApplyTransactionWithEVM(msg, gp, statedb, vmenv, UUID)
-		var zeroAddr common.Address
-		if res != nil {
-			if res.ContractAddr != zeroAddr {
-				fmt.Println("UUID为" + UUID + ",执行结果为" + hex.EncodeToString(res.ContractAddr[:]))
-				bc.Storage.AddContractRes(UUID, res.ContractAddr[:])
-			} else {
-
-				fmt.Println("UUID为" + UUID + ",执行结果为" + hex.EncodeToString(res.ReturnData))
-				bc.Storage.AddContractRes(UUID, res.ReturnData)
-			}
-		} else {
-			bc.Storage.AddContractRes(UUID, []byte(err.Error()))
-		}
-
-		bc.Storage.DataBase.Sync()
-		if err != nil {
-			fmt.Println("exetx回滚，UUID为" + UUID + ",error为" + err.Error())
-			statedb.RevertToSnapshot(snap)
-			tx.Log = nil
-			//log.Panic(err)
-		} else {
-			if statedb.GetJournal().Entries != nil && len(statedb.GetJournal().Entries) != 0 {
-
-				j := statedb.GetJournal().Copy()
-				idx_ := sort.Search(len(j.ValidRevisions), func(i int) bool {
-					return j.ValidRevisions[i].Id >= snap
-				})
-				s1 := j.ValidRevisions[idx_].JournalIndex
-				var w1 []state.Wrapper
-				for i := s1; i <= len(j.Entries)-1; i++ {
-					w := j.Entries[i]
-					switch w.(type) {
-					case state.CreateObjectChange, *state.CreateObjectChange:
-						w1 = append(w1, state.Wrapper{Type: "CreateObjectChange", OriginalObj: w})
-					case state.CreateContractChange, *state.CreateContractChange:
-						w1 = append(w1, state.Wrapper{Type: "CreateContractChange", OriginalObj: w})
-					case state.SelfDestructChange, *state.SelfDestructChange:
-						w1 = append(w1, state.Wrapper{Type: "SelfDestructChange", OriginalObj: w})
-					case state.BalanceChange, *state.BalanceChange:
-						w1 = append(w1, state.Wrapper{Type: "BalanceChange", OriginalObj: w})
-					case state.NonceChange, *state.NonceChange:
-						w1 = append(w1, state.Wrapper{Type: "NonceChange", OriginalObj: w})
-					case state.StorageChange, *state.StorageChange:
-						w1 = append(w1, state.Wrapper{Type: "StorageChange", OriginalObj: w})
-					case state.CodeChange, *state.CodeChange:
-						w1 = append(w1, state.Wrapper{Type: "CodeChange", OriginalObj: w})
-					case state.RefundChange, *state.RefundChange:
-						w1 = append(w1, state.Wrapper{Type: "RefundChange", OriginalObj: w})
-					case state.AddLogChange, *state.AddLogChange:
-						w1 = append(w1, state.Wrapper{Type: "AddLogChange", OriginalObj: w})
-					case state.TouchChange, *state.TouchChange:
-						w1 = append(w1, state.Wrapper{Type: "TouchChange", OriginalObj: w})
-					case state.AccessListAddAccountChange, *state.AccessListAddAccountChange:
-						w1 = append(w1, state.Wrapper{Type: "AccessListAddAccountChange", OriginalObj: w})
-					case state.AccessListAddSlotChange, *state.AccessListAddSlotChange:
-						w1 = append(w1, state.Wrapper{Type: "AccessListAddSlotChange", OriginalObj: w})
-					case state.TransientStorageChange, *state.TransientStorageChange:
-						w1 = append(w1, state.Wrapper{Type: "TransientStorageChange", OriginalObj: w})
-					default:
-						fmt.Println("exetx error unknown type")
-					}
-
-				}
-				tx.Log = w1
-
-			}
-
-		}
-		if res != nil && res.Err != nil {
-			fmt.Println(res.Err)
-		}
-
-		if res != nil {
-			fmt.Println("使用的gas:", res.UsedGas)
-			fmt.Println("退还的gas:", res.RefundedGas)
-		}
-
-		m := new(message.TxInfo)
-		m.TxHash = tx.TxHash
-		if res != nil && res.Err == nil {
-			m.IsSuccess = true
-		} else {
-			m.IsSuccess = false
-		}
-
-		m.GasPrice = tx.GasPrice.Uint64()
-		if res != nil {
-			m.GasUsed = res.UsedGas
-
-			//m.ExecuteResult = res.ReturnData
-		}
-		m.GasLimit = tx.Gas
-		m.IsContract = true
-		m.ExecuteTime = time.Now()
-
-		m.From = tx.From
-		m.To = tx.To
-		m.Input = tx.Data
-		m.Value = tx.Value
-		m.UUID = tx.UUID
-
-		if res != nil {
-			if res.ContractAddr != zeroAddr {
-				m.Res = res.ContractAddr[:]
-			} else {
-				m.Res = res.ReturnData
-			}
-		} else {
-			m.Res = []byte(err.Error())
-		}
-
-		b, _ := json.Marshal(m)
-		m1 := message.MergeMessage(message.CTxInfo, b)
-		go networks.TcpDial(m1, params.IPmap_nodeTable[params.DeciderShard][0])
-
-		//特殊的申请成为broker的合约
-		if tx.IsBrokerContract {
-			if isZeroArray(tx.To) {
-				msg := message.ContractCreateSuccess{
-					ShardId: bc.ChainConfig.ShardID,
-					Addr:    hex.EncodeToString(res.ContractAddr[:]),
-				}
-
-				// marshal and broadcast
-				bytes, err := json.Marshal(msg)
-				if err != nil {
-					log.Panic()
-				}
-				msg_send := message.MergeMessage(message.CContractCreateSuccess, bytes)
-				go networks.TcpDial(msg_send, bc.Iptable[params.DeciderShard][0])
-			} else {
-				if res.Err == nil {
-					msg := message.ContractExecuteSuccess{
-						ShardId: bc.ChainConfig.ShardID,
-						Addr:    hex.EncodeToString(tx.From[:]),
-					}
-
-					// marshal and broadcast
-					bytes, err := json.Marshal(msg)
-					if err != nil {
-						log.Panic()
-					}
-					msg_send := message.MergeMessage(message.CContractExecuteSuccess, bytes)
-					go networks.TcpDial(msg_send, bc.Iptable[params.DeciderShard][0])
-				}
-			}
-		}
-		return
-	} else if tx.IsContract && global.NodeID != 0 && tx.Log != nil && len(tx.Log) > 0 {
-		for _, item := range tx.Log {
-			item.OriginalObj.Execute(statedb)
-		}
-
-		return
-	}
-	if tx.IsContract {
-		return
-	}
-
 	//TODO 普通转账交易添加txinfo
 
 	if tx.IsAllocatedSender || tx.IsAllocatedRecipent {
@@ -403,55 +196,6 @@ func (bc *BlockChain) GetHeader(hash common.Hash, number uint64) *core.BlockHead
 	}
 	return block.Header
 }
-func NewEVMTxContext(msg *core.Message) vm.TxContext {
-	ctx := vm.TxContext{
-		Origin:     msg.From,
-		GasPrice:   new(big.Int).Set(msg.GasPrice),
-		BlobHashes: msg.BlobHashes,
-	}
-	if msg.BlobGasFeeCap != nil {
-		ctx.BlobFeeCap = new(big.Int).Set(msg.BlobGasFeeCap)
-	}
-	return ctx
-}
-
-func ApplyTransactionWithEVM(msg *core.Message, gp *vm.GasPool, statedb *state.StateDB, evm *vm.EVM, UUID string) (result *vm.ExecutionResult, err error) {
-	//if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
-	//	evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, msg.From)
-	//	if evm.Config.Tracer.OnTxEnd != nil {
-	//		defer func() {
-	//			evm.Config.Tracer.OnTxEnd(receipt, err)
-	//		}()
-	//	}
-	//}
-	// Create a new context to be used in the EVM environment.
-
-	txContext := NewEVMTxContext(msg)
-	evm.Reset(txContext, statedb)
-
-	// Apply the transaction to the current state (included in the env).
-	result, err = vm.ApplyMessage(evm, msg, gp, UUID)
-	if err != nil {
-		fmt.Println("result, err = vm.ApplyMessage(evm, msg, gp,UUID)错误:" + err.Error())
-		return nil, err
-	}
-	if result.Err != nil && result.Err.Error() != "" {
-		fmt.Println("result, err = vm.ApplyMessage(evm, msg, gp,UUID)错误:" + result.Err.Error())
-		return nil, result.Err
-	}
-	//statedb.IntermediateRoot(true)
-
-	// Update the state with pending changes.
-	//var root []byte
-	//if config.IsByzantium(blockNumber) {
-	//	statedb.Finalise(true)
-	//} else {
-	//	root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
-	//}
-	//*usedGas += result.UsedGas
-
-	return result, nil
-}
 func NewEVMBlockContext(header *core.BlockHeader, chain ChainContext, author *common.Address) vm.BlockContext {
 	var (
 		beneficiary common.Address
@@ -459,22 +203,6 @@ func NewEVMBlockContext(header *core.BlockHeader, chain ChainContext, author *co
 		blobBaseFee *big.Int
 		random      *common.Hash
 	)
-
-	// If we don't have an explicit author (i.e. not mining), extract from the header
-	//if author == nil {
-	//	beneficiary, _ = chain.Engine().Author(header) // Ignore error, we're past header validation
-	//} else {
-	//	beneficiary = *author
-	//}
-	//if header.BaseFee != nil {
-	//	baseFee = new(big.Int).Set(header.BaseFee)
-	//}
-	//if header.ExcessBlobGas != nil {
-	//	blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
-	//}
-	//if header.Difficulty.Sign() == 0 {
-	//	random = &header.MixDigest
-	//}
 	return vm.BlockContext{
 		CanTransfer: CanTransfer,
 		Transfer:    Transfer,
@@ -613,17 +341,6 @@ func (bc *BlockChain) AddGenisisBlock(gb *core.Block) {
 
 // add a block
 func (bc *BlockChain) AddBlock(b *core.Block) {
-	//if b.Header.Number != bc.CurrentBlock.Header.Number+1 {
-	//	fmt.Println("the block height is not correct")
-	//	return
-	//}
-	//if !bytes.Equal(b.Header.ParentBlockHash, bc.CurrentBlock.Hash) {
-	//	fmt.Println("err parent block hash")
-	//	return
-	//}
-
-	// if this block is mined by the node, the transactions is no need to be handled again
-	//_, err := trie.New(trie.TrieID(common.BytesToHash(b.Header.StateRoot)), bc.Triedb)
 	_, err := trie.New(trie.TrieID(global2.Root), bc.Triedb)
 	if err != nil {
 		rt := bc.GetUpdateStatusTrie(b.Body, b.Header, bc.CurrentBlock)

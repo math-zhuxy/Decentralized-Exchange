@@ -42,13 +42,11 @@ type Transaction struct {
 
 	//Isimportant bool
 
-	Gas      uint64
-	GasPrice *big.Int
-	To       common.Address
-	From     common.Address
-	Data     []byte
-
-	IsContract       bool
+	Gas              uint64
+	GasPrice         *big.Int
+	To               common.Address
+	From             common.Address
+	Data             []byte
 	IsBrokerContract bool
 
 	Log  []state.Wrapper
