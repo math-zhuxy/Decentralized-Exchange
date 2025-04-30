@@ -226,79 +226,11 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 			p.pl.Plog.Printf("S%dN%d: this round of pbft %d is end \n", p.ShardID, p.NodeID, p.sequenceID)
 			p.sequenceID += 1
 
-			//发放出块奖励
-			//if params.NodeID == p.view {
-			//	bonus := 100
-			//	if !flag {
-			//		bonus = -999900
-			//		flag = true
-			//	}
-			//
-			//	for i := uint(0); i < uint(params.NodesInShard); i++ {
-			//		if i == uint(params.NodeID) {
-			//			sid := p.CurChain.Get_PartitionMap(global.NodeAccount)
-			//			tx := core.NewTransaction(supervisor.Broker2EarnAddr, global.NodeAccount, big.NewInt(int64(bonus)), 1, big.NewInt(1))
-			//			txs := make([]*core.Transaction, 0)
-			//			txs = append(txs, tx)
-			//			it := message.InjectTxs{
-			//				Txs:       txs,
-			//				ToShardID: sid,
-			//			}
-			//			itByte, err := json.Marshal(it)
-			//			if err != nil {
-			//				log.Panic(err)
-			//			}
-			//			send_msg := message.MergeMessage(message.CInject, itByte)
-			//			go networks.TcpDial(send_msg, p.ip_nodeTable[sid][0])
-			//		} else {
-			//			global.NodeAccountMapLock.Lock()
-			//			if _, ok := global.NodeAccountMap[i]; !ok {
-			//				global.NodeAccountMapLock.Unlock()
-			//				msg := message.QueryNodeAccount{FromNodeID: params.NodeID}
-			//				Byte, _ := json.Marshal(msg)
-			//				sendmsg := message.MergeMessage(message.CQueryNodeAccount, Byte)
-			//				go networks.TcpDial(sendmsg, p.ip_nodeTable[params.ShardID][uint64(i)])
-			//				<-global.NodeAccChan
-			//			} else {
-			//				global.NodeAccountMapLock.Unlock()
-			//			}
-			//
-			//			global.NodeAccountMapLock.Lock()
-			//			acc := global.NodeAccountMap[i]
-			//			global.NodeAccountMapLock.Unlock()
-			//			sid := p.CurChain.Get_PartitionMap(acc)
-			//
-			//			tx := core.NewTransaction(supervisor.Broker2EarnAddr, global.NodeAccountMap[i], big.NewInt(int64(bonus)), 1, big.NewInt(1))
-			//			txs := make([]*core.Transaction, 0)
-			//			txs = append(txs, tx)
-			//			it := message.InjectTxs{
-			//				Txs:       txs,
-			//				ToShardID: sid,
-			//			}
-			//			itByte, err := json.Marshal(it)
-			//			if err != nil {
-			//				log.Panic(err)
-			//			}
-			//			send_msg := message.MergeMessage(message.CInject, itByte)
-			//			go networks.TcpDial(send_msg, p.ip_nodeTable[sid][0])
-			//		}
-			//	}
-			//}
-
 			//从消息池删除本轮pbft的消息，避免内存泄漏
 			delete(p.requestPool, string(cmsg.Digest))
 
 			//delete(p.isReply, string(cmsg.Digest))
 		}
-
-		//查询本节点获得的奖励
-		//m := new(message.QueryAccount)
-		//m.FromNodeID = params.NodeID
-		//m.FromShardID = params.ShardID
-		//m.Account = global.NodeAccount
-		//b, _ := json.Marshal(m)
-		//ms := message.MergeMessage(message.CQueryAccount, b)
-		//go networks.TcpDial(ms, p.ip_nodeTable[p.CurChain.Get_PartitionMap(global.NodeAccount)][0])
 
 		p.pbftStage.Store(1)
 

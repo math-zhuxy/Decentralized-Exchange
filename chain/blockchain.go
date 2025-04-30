@@ -158,8 +158,6 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 		}
 		return
 	}
-	// fmt.Printf("tx %d: %s, %s\n", i, tx.Sender, tx.Recipient)
-	// senderIn := false
 	if !tx.Relayed && (bc.Get_PartitionMap(tx.Sender) == bc.ChainConfig.ShardID || tx.HasBroker) {
 		if !tx.Isbrokertx2 {
 			value, _ := uint256.FromBig(tx.Value)
