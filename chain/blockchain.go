@@ -26,7 +26,6 @@ import (
 	"math/big"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -37,7 +36,6 @@ import (
 
 type BlockChain struct {
 	Db ethdb.Database // the leveldb database to store in the disk, for status trie
-	//triedb       *trie.Database      // the trie database which helps to store the status trie
 
 	Triedb  *triedb.Database // the trie database which helps to store the status trie
 	Statedb *state.CachingDB
@@ -46,9 +44,7 @@ type BlockChain struct {
 	CurrentBlock *core.Block         // the top block in this blockchain
 	Storage      *storage.Storage    // Storage is the bolt-db to store the blocks
 	Txpool       *core.TxPool        // the transaction pool
-	//PartitionMap map[string]uint64   // the partition map which is defined by some algorithm can help account parition
-	pmlock  sync.RWMutex
-	Iptable map[uint64]map[uint64]string
+	Iptable      map[uint64]map[uint64]string
 }
 
 // Get the transaction root, this root can be used to check the transactions
@@ -98,20 +94,10 @@ func isZeroArray(a [20]byte) bool {
 
 func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *core.BlockHeader, parentBlock *core.Block) common.Hash {
 
-	//copiedMap := make(map[string]uint64, len(bc.PartitionMap))
-	//for key, value := range bc.PartitionMap {
-	//	copiedMap[key] = value
-	//}
-
 	var (
 		gp             = new(vm.GasPool).AddGas(blockHeader.GasLimit)
 		statedb, _, sn = state.New(global2.Root, bc.Statedb)
 	)
-
-	//fmt.Println("GetUpdateStatusTrie... len of txs is ", len(txs))
-
-	//st, err := trie.New(trie.TrieID(common.BytesToHash(bc.CurrentBlock.Header.StateRoot)), bc.Triedb)
-	//UUID:= strconv.Itoa(int(global.ShardID)) + "-"+uuid.New().String()
 	for idx, tx := range txs {
 
 		UUID := tx.UUID
@@ -119,7 +105,7 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 		FromStr := hex.EncodeToString(tx.From[:])
 		ToStr := hex.EncodeToString(tx.To[:])
 
-		for true {
+		for {
 			global.GLobalLock.Lock()
 			if _, ok1 := global.GlobalLockMap[FromStr]; ok1 {
 				global.GLobalLock.Unlock()
@@ -146,27 +132,8 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 
 	}
 
-	//rt, ns := st.Commit(false)
-	//err = bc.Triedb.Update(trienode.NewWithNodeSet(ns))
-	//if err != nil {
-	//	log.Panic()
-	//}
-	//err = bc.Triedb.Commit(rt, false)
-	//if err != nil {
-	//	log.Panic(err)
-	//}
-
-	//hash := statedb.IntermediateRoot(false)
-
 	var hash common.Hash
 	if sn == "new" {
-
-		//hash, err = statedb.Commit(blockHeader.Number, false)
-
-		//
-		//global3.Lock.Lock()
-		//global3.GlobalStateDB = nil
-		//global3.Lock.Unlock()
 
 		var E1 error
 		global2.Root, E1 = statedb.Commit(0, false)
@@ -189,12 +156,11 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 
 	if tx.IsContract && global.NodeID == 0 {
 		msg := &core.Message{
-			Nonce:     tx.Nonce, //目前是按交易递增的，实际是按sender递增的
-			GasLimit:  tx.Gas,
-			GasPrice:  new(big.Int).Set(tx.GasPrice),
-			GasFeeCap: new(big.Int).Set(tx.GasPrice),
-			GasTipCap: new(big.Int).Set(tx.GasPrice),
-			//To:               copyAddressPtr(tx.To),
+			Nonce:            tx.Nonce, //目前是按交易递增的，实际是按sender递增的
+			GasLimit:         tx.Gas,
+			GasPrice:         new(big.Int).Set(tx.GasPrice),
+			GasFeeCap:        new(big.Int).Set(tx.GasPrice),
+			GasTipCap:        new(big.Int).Set(tx.GasPrice),
 			To:               tx.To,
 			Value:            new(big.Int).Set(tx.Value),
 			Data:             tx.Data,
@@ -240,8 +206,6 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 		if err != nil {
 			fmt.Println("exetx回滚，UUID为" + UUID + ",error为" + err.Error())
 			statedb.RevertToSnapshot(snap)
-			//TODO
-			gp = new(vm.GasPool).AddGas(blockHeader.GasLimit)
 			tx.Log = nil
 			//log.Panic(err)
 		} else {
@@ -371,15 +335,6 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 				}
 			}
 		}
-
-		//contractoutput.Lock.Lock()
-		//contractoutput.ContractAddr = res.ContractAddr
-		//contractoutput.Output = append(contractoutput.Output, hex.EncodeToString(res.ReturnData))
-		//contractoutput.Lock.Unlock()
-
-		//fmt.Println(res.ContractAddr)
-
-		//fmt.Println(hex.EncodeToString(res.ContractAddr[:]))
 		return
 	} else if tx.IsContract && global.NodeID != 0 && tx.Log != nil && len(tx.Log) > 0 {
 		for _, item := range tx.Log {
@@ -392,11 +347,6 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 		return
 	}
 
-	//st, err := trie.New(trie.TrieID(common.BytesToHash(bc.CurrentBlock.Header.StateRoot)), bc.Triedb)
-	//if err != nil {
-	//	log.Panic(err)
-	//}
-
 	//TODO 普通转账交易添加txinfo
 
 	if tx.IsAllocatedSender || tx.IsAllocatedRecipent {
@@ -405,49 +355,12 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 			s, _ := hex.DecodeString(tx.Sender)
 			statedb.SubBalance(common.Address(s), value, tracing.BalanceSubByXBZ)
 
-			//s_state_enc, _ := st.Get([]byte(tx.Sender))
-			//var s_state *core.AccountState
-			//if s_state_enc == nil {
-			//	// fmt.Println("missing account SENDER, now adding account")
-			//	ib := new(big.Int)
-			//	ib.Add(ib, params.Init_Balance)
-			//	s_state = &core.AccountState{
-			//		Nonce:   uint64(idx),
-			//		Balance: ib,
-			//	}
-			//} else {
-			//	s_state = core.DecodeAS(s_state_enc)
-			//}
-			//s_balance := s_state.Balance
-			//if s_balance.Cmp(tx.Value) == -1 {
-			//	fmt.Printf("the balance is less than the transfer amount\n")
-			//	continue
-			//}
-			//s_state.Deduct(tx.Value)
-			//st.Update([]byte(tx.Sender), s_state.Encode())
-
 		}
 		if tx.IsAllocatedRecipent {
 
 			value, _ := uint256.FromBig(tx.Value)
 			s, _ := hex.DecodeString(tx.Recipient)
 			statedb.AddBalance(common.Address(s), value, tracing.BalanceAddByXBZ)
-
-			//r_state_enc, _ := st.Get([]byte(tx.Recipient))
-			//var r_state *core.AccountState
-			//if r_state_enc == nil {
-			//	// fmt.Println("missing account RECIPIENT, now adding account")
-			//	ib := new(big.Int)
-			//	ib.Add(ib, params.Init_Balance)
-			//	r_state = &core.AccountState{
-			//		Nonce:   uint64(idx),
-			//		Balance: ib,
-			//	}
-			//} else {
-			//	r_state = core.DecodeAS(r_state_enc)
-			//}
-			//r_state.Deposit(tx.Value)
-			//st.Update([]byte(tx.Recipient), r_state.Encode())
 
 		}
 		return
@@ -456,67 +369,17 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 	// senderIn := false
 	if !tx.Relayed && (bc.Get_PartitionMap(tx.Sender) == bc.ChainConfig.ShardID || tx.HasBroker) {
 		if !tx.Isbrokertx2 {
-			// senderIn = true
-			// fmt.Printf("the sender %s is in this shard %d, \n", tx.Sender, bc.ChainConfig.ShardID)
-			// modify local accountstate
-
-			//s_state_enc, _ := st.Get([]byte(tx.Sender))
-			//var s_state *core.AccountState
-			//if s_state_enc == nil {
-			//	// fmt.Println("missing account SENDER, now adding account")
-			//	ib := new(big.Int)
-			//	ib.Add(ib, params.Init_Balance)
-			//	s_state = &core.AccountState{
-			//		Nonce:   uint64(idx),
-			//		Balance: ib,
-			//	}
-			//} else {
-			//	s_state = core.DecodeAS(s_state_enc)
-			//}
-			//s_balance := s_state.Balance
-			//if s_balance.Cmp(tx.Value) == -1 {
-			//	fmt.Printf("the balance is less than the transfer amount\n")
-			//	continue
-			//}
 			value, _ := uint256.FromBig(tx.Value)
 			value2, _ := uint256.FromBig(tx.Fee)
 			s, _ := hex.DecodeString(tx.Sender)
 			// fmt.Println("分片：",strconv.Itoa(int(global.ShardID)),",地址：",tx.Sender,"，更新前的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10),",value是：",value.String())
 			statedb.SubBalance(common.Address(s), value, tracing.BalanceSubByXBZ)
 			statedb.SubBalance(common.Address(s), value2, tracing.BalanceSubByXBZ)
-			// fmt.Println("分片：",strconv.Itoa(int(global.ShardID)), ",地址：",tx.Sender,"，更新后的余额：",statedb.GetBalance(common.Address(s)).ToBig().Text(10))
-
-			//s_state.Deduct(tx.Value)
-			//
-			//s_state.Deduct(tx.Fee)
-			//
-			//st.Update([]byte(tx.Sender), s_state.Encode())
 		}
 	}
 
-	// recipientIn := false
-	//fmt.Println(tx.Recipient)
 	if bc.Get_PartitionMap(tx.Recipient) == bc.ChainConfig.ShardID || tx.HasBroker {
 		if !tx.Isbrokertx1 {
-			// fmt.Printf("the recipient %s is in this shard %d, \n", tx.Recipient, bc.ChainConfig.ShardID)
-			// recipientIn = true
-			// modify local state
-
-			//r_state_enc, _ := st.Get([]byte(tx.Recipient))
-			//var r_state *core.AccountState
-			//if r_state_enc == nil {
-			//	// fmt.Println("missing account RECIPIENT, now adding account")
-			//	ib := new(big.Int)
-			//	ib.Add(ib, params.Init_Balance)
-			//	r_state = &core.AccountState{
-			//		Nonce:   uint64(idx),
-			//		Balance: ib,
-			//	}
-			//} else {
-			//	r_state = core.DecodeAS(r_state_enc)
-			//}
-			//r_state.Deposit(tx.Value)
-			//st.Update([]byte(tx.Recipient), r_state.Encode())
 
 			value, _ := uint256.FromBig(tx.Value)
 			s, _ := hex.DecodeString(tx.Recipient)
@@ -529,424 +392,7 @@ func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.Block
 	//statedb.IntermediateRoot(true)
 }
 
-func (bc *BlockChain) GetUpdateStatusTrieBackup(txs []*core.Transaction, blockHeader *core.BlockHeader, parentBlock *core.Block) common.Hash {
-
-	//copiedMap := make(map[string]uint64, len(bc.PartitionMap))
-	//for key, value := range bc.PartitionMap {
-	//	copiedMap[key] = value
-	//}
-
-	var (
-		gp            = new(vm.GasPool).AddGas(blockHeader.GasLimit)
-		statedb, _, _ = state.New(global2.Root, bc.Statedb)
-	)
-
-	//fmt.Println("GetUpdateStatusTrie... len of txs is ", len(txs))
-
-	//st, err := trie.New(trie.TrieID(common.BytesToHash(bc.CurrentBlock.Header.StateRoot)), bc.Triedb)
-	for idx, tx := range txs {
-
-		if tx.IsContract {
-			msg := &core.Message{
-				Nonce:     tx.Nonce, //目前是按交易递增的，实际是按sender递增的
-				GasLimit:  tx.Gas,
-				GasPrice:  new(big.Int).Set(tx.GasPrice),
-				GasFeeCap: new(big.Int).Set(tx.GasPrice),
-				GasTipCap: new(big.Int).Set(tx.GasPrice),
-				//To:               copyAddressPtr(tx.To),
-				To:               tx.To,
-				Value:            new(big.Int).Set(tx.Value),
-				Data:             tx.Data,
-				AccessList:       nil,
-				SkipNonceChecks:  false,
-				SkipFromEOACheck: false,
-				BlobHashes:       nil,
-				BlobGasFeeCap:    nil,
-				From:             tx.From,
-			}
-
-			fmt.Println("gasprice为:", msg.GasPrice)
-			fmt.Println("gaslimit为:", msg.GasLimit)
-
-			var snap = statedb.Snapshot()
-
-			//fmt.Println("NewEVMBlockContext")
-			blockContext := NewEVMBlockContext(blockHeader, bc, nil)
-
-			blockContext.Coinbase = blockHeader.Coinbase
-			//txContext := NewEVMTxContext(msg)
-			//fmt.Println("NewEVM")
-			vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, nil, vm.Config{})
-			//fmt.Println("SetTxContext")
-			statedb.SetTxContext(common.Hash(tx.TxHash), idx)
-			//fmt.Println("ApplyTransactionWithEVM")
-			res, err := ApplyTransactionWithEVM(msg, gp, statedb, vmenv, "123")
-			if err != nil {
-				statedb.RevertToSnapshot(snap)
-				//TODO
-				gp = new(vm.GasPool).AddGas(blockHeader.GasLimit)
-
-				//log.Panic(err)
-			}
-			if res != nil && res.Err != nil {
-				fmt.Println(res.Err)
-			}
-
-			if res != nil {
-				fmt.Println("使用的gas:", res.UsedGas)
-				fmt.Println("退还的gas:", res.RefundedGas)
-			}
-
-			m := new(message.TxInfo)
-			m.TxHash = tx.TxHash
-
-			if res.Err != nil {
-				m.IsSuccess = false
-			} else {
-				m.IsSuccess = true
-			}
-
-			m.GasPrice = tx.GasPrice.Uint64()
-			m.GasUsed = res.UsedGas
-			m.GasLimit = tx.Gas
-			m.ExecuteResult = res.ReturnData
-			m.IsContract = true
-			m.ExecuteTime = time.Now()
-
-			b, _ := json.Marshal(m)
-			m1 := message.MergeMessage(message.CTxInfo, b)
-			go networks.TcpDial(m1, params.IPmap_nodeTable[params.DeciderShard][0])
-
-			//特殊的申请成为broker的合约
-			if tx.IsBrokerContract {
-				if isZeroArray(tx.To) {
-					msg := message.ContractCreateSuccess{
-						ShardId: bc.ChainConfig.ShardID,
-						Addr:    hex.EncodeToString(res.ContractAddr[:]),
-					}
-
-					// marshal and broadcast
-					bytes, err := json.Marshal(msg)
-					if err != nil {
-						log.Panic()
-					}
-					msg_send := message.MergeMessage(message.CContractCreateSuccess, bytes)
-					go networks.TcpDial(msg_send, bc.Iptable[params.DeciderShard][0])
-				} else {
-					if res.Err == nil {
-						msg := message.ContractExecuteSuccess{
-							ShardId: bc.ChainConfig.ShardID,
-							Addr:    hex.EncodeToString(tx.From[:]),
-						}
-
-						// marshal and broadcast
-						bytes, err := json.Marshal(msg)
-						if err != nil {
-							log.Panic()
-						}
-						msg_send := message.MergeMessage(message.CContractExecuteSuccess, bytes)
-						go networks.TcpDial(msg_send, bc.Iptable[params.DeciderShard][0])
-					}
-				}
-			}
-
-			//contractoutput.Lock.Lock()
-			//contractoutput.ContractAddr = res.ContractAddr
-			//contractoutput.Output = append(contractoutput.Output, hex.EncodeToString(res.ReturnData))
-			//contractoutput.Lock.Unlock()
-
-			//fmt.Println(res.ContractAddr)
-
-			//fmt.Println(hex.EncodeToString(res.ContractAddr[:]))
-
-			continue
-		}
-
-		//st, err := trie.New(trie.TrieID(common.BytesToHash(bc.CurrentBlock.Header.StateRoot)), bc.Triedb)
-		//if err != nil {
-		//	log.Panic(err)
-		//}
-
-		//TODO 普通转账交易添加txinfo
-
-		if tx.IsAllocatedSender || tx.IsAllocatedRecipent {
-			if tx.IsAllocatedSender {
-				value, _ := uint256.FromBig(tx.Value)
-				s, _ := hex.DecodeString(tx.Sender)
-				statedb.SubBalance(common.Address(s), value, tracing.BalanceSubByXBZ)
-
-				//s_state_enc, _ := st.Get([]byte(tx.Sender))
-				//var s_state *core.AccountState
-				//if s_state_enc == nil {
-				//	// fmt.Println("missing account SENDER, now adding account")
-				//	ib := new(big.Int)
-				//	ib.Add(ib, params.Init_Balance)
-				//	s_state = &core.AccountState{
-				//		Nonce:   uint64(idx),
-				//		Balance: ib,
-				//	}
-				//} else {
-				//	s_state = core.DecodeAS(s_state_enc)
-				//}
-				//s_balance := s_state.Balance
-				//if s_balance.Cmp(tx.Value) == -1 {
-				//	fmt.Printf("the balance is less than the transfer amount\n")
-				//	continue
-				//}
-				//s_state.Deduct(tx.Value)
-				//st.Update([]byte(tx.Sender), s_state.Encode())
-
-			}
-			if tx.IsAllocatedRecipent {
-
-				value, _ := uint256.FromBig(tx.Value)
-				s, _ := hex.DecodeString(tx.Recipient)
-				statedb.AddBalance(common.Address(s), value, tracing.BalanceAddByXBZ)
-
-				//r_state_enc, _ := st.Get([]byte(tx.Recipient))
-				//var r_state *core.AccountState
-				//if r_state_enc == nil {
-				//	// fmt.Println("missing account RECIPIENT, now adding account")
-				//	ib := new(big.Int)
-				//	ib.Add(ib, params.Init_Balance)
-				//	r_state = &core.AccountState{
-				//		Nonce:   uint64(idx),
-				//		Balance: ib,
-				//	}
-				//} else {
-				//	r_state = core.DecodeAS(r_state_enc)
-				//}
-				//r_state.Deposit(tx.Value)
-				//st.Update([]byte(tx.Recipient), r_state.Encode())
-
-			}
-			continue
-		}
-		// fmt.Printf("tx %d: %s, %s\n", i, tx.Sender, tx.Recipient)
-		// senderIn := false
-		if !tx.Relayed && (bc.Get_PartitionMap(tx.Sender) == bc.ChainConfig.ShardID || tx.HasBroker) {
-			if !tx.Isbrokertx2 {
-				// senderIn = true
-				// fmt.Printf("the sender %s is in this shard %d, \n", tx.Sender, bc.ChainConfig.ShardID)
-				// modify local accountstate
-
-				//s_state_enc, _ := st.Get([]byte(tx.Sender))
-				//var s_state *core.AccountState
-				//if s_state_enc == nil {
-				//	// fmt.Println("missing account SENDER, now adding account")
-				//	ib := new(big.Int)
-				//	ib.Add(ib, params.Init_Balance)
-				//	s_state = &core.AccountState{
-				//		Nonce:   uint64(idx),
-				//		Balance: ib,
-				//	}
-				//} else {
-				//	s_state = core.DecodeAS(s_state_enc)
-				//}
-				//s_balance := s_state.Balance
-				//if s_balance.Cmp(tx.Value) == -1 {
-				//	fmt.Printf("the balance is less than the transfer amount\n")
-				//	continue
-				//}
-				value, _ := uint256.FromBig(tx.Value)
-				value2, _ := uint256.FromBig(tx.Fee)
-				s, _ := hex.DecodeString(tx.Sender)
-				statedb.SubBalance(common.Address(s), value, tracing.BalanceSubByXBZ)
-				statedb.SubBalance(common.Address(s), value2, tracing.BalanceSubByXBZ)
-
-				//s_state.Deduct(tx.Value)
-				//
-				//s_state.Deduct(tx.Fee)
-				//
-				//st.Update([]byte(tx.Sender), s_state.Encode())
-			}
-		}
-		// recipientIn := false
-		if bc.Get_PartitionMap(tx.Recipient) == bc.ChainConfig.ShardID || tx.HasBroker {
-			if !tx.Isbrokertx1 {
-				// fmt.Printf("the recipient %s is in this shard %d, \n", tx.Recipient, bc.ChainConfig.ShardID)
-				// recipientIn = true
-				// modify local state
-
-				//r_state_enc, _ := st.Get([]byte(tx.Recipient))
-				//var r_state *core.AccountState
-				//if r_state_enc == nil {
-				//	// fmt.Println("missing account RECIPIENT, now adding account")
-				//	ib := new(big.Int)
-				//	ib.Add(ib, params.Init_Balance)
-				//	r_state = &core.AccountState{
-				//		Nonce:   uint64(idx),
-				//		Balance: ib,
-				//	}
-				//} else {
-				//	r_state = core.DecodeAS(r_state_enc)
-				//}
-				//r_state.Deposit(tx.Value)
-				//st.Update([]byte(tx.Recipient), r_state.Encode())
-
-				value, _ := uint256.FromBig(tx.Value)
-				s, _ := hex.DecodeString(tx.Recipient)
-				statedb.AddBalance(common.Address(s), value, tracing.BalanceAddByXBZ)
-
-			}
-		}
-
-		statedb.IntermediateRoot(true)
-
-	}
-	hash, err := statedb.Commit(blockHeader.Number, false)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	return hash
-}
-
-// handle transactions and modify the status trie
-//func (bc *BlockChain) GetUpdateStatusTrie2(txs []*core.Transaction) common.Hash {
-//	fmt.Printf("The len of txs is %d\n", len(txs))
-//	// the empty block (length of txs is 0) condition
-//	if len(txs) == 0 {
-//		return common.BytesToHash(bc.CurrentBlock.Header.StateRoot)
-//	}
-//	// build trie from the triedb (in disk)
-//	st, err := trie.New(trie.TrieID(common.BytesToHash(bc.CurrentBlock.Header.StateRoot)), bc.triedb)
-//	if err != nil {
-//		log.Panic(err)
-//	}
-//	cnt := 0
-//	// handle transactions, the signature check is ignored here
-//	for i, tx := range txs {
-//		if tx.IsAllocatedSender || tx.IsAllocatedRecipent {
-//			if tx.IsAllocatedSender {
-//				s_state_enc, _ := st.Get([]byte(tx.Sender))
-//				var s_state *core.AccountState
-//				if s_state_enc == nil {
-//					// fmt.Println("missing account SENDER, now adding account")
-//					ib := new(big.Int)
-//					ib.Add(ib, params.Init_Balance)
-//					s_state = &core.AccountState{
-//						Nonce:   uint64(i),
-//						Balance: ib,
-//					}
-//				} else {
-//					s_state = core.DecodeAS(s_state_enc)
-//				}
-//				s_balance := s_state.Balance
-//				if s_balance.Cmp(tx.Value) == -1 {
-//					fmt.Printf("the balance is less than the transfer amount\n")
-//					continue
-//				}
-//				s_state.Deduct(tx.Value)
-//				st.Update([]byte(tx.Sender), s_state.Encode())
-//				cnt++
-//			}
-//			if tx.IsAllocatedRecipent {
-//				r_state_enc, _ := st.Get([]byte(tx.Recipient))
-//				var r_state *core.AccountState
-//				if r_state_enc == nil {
-//					// fmt.Println("missing account RECIPIENT, now adding account")
-//					ib := new(big.Int)
-//					ib.Add(ib, params.Init_Balance)
-//					r_state = &core.AccountState{
-//						Nonce:   uint64(i),
-//						Balance: ib,
-//					}
-//				} else {
-//					r_state = core.DecodeAS(r_state_enc)
-//				}
-//				r_state.Deposit(tx.Value)
-//				st.Update([]byte(tx.Recipient), r_state.Encode())
-//				cnt++
-//			}
-//			continue
-//		}
-//		// fmt.Printf("tx %d: %s, %s\n", i, tx.Sender, tx.Recipient)
-//		// senderIn := false
-//		if !tx.Relayed && (bc.Get_PartitionMap(tx.Sender) == bc.ChainConfig.ShardID || tx.HasBroker) {
-//			if !tx.Isbrokertx2 {
-//				// senderIn = true
-//				// fmt.Printf("the sender %s is in this shard %d, \n", tx.Sender, bc.ChainConfig.ShardID)
-//				// modify local accountstate
-//				s_state_enc, _ := st.Get([]byte(tx.Sender))
-//				var s_state *core.AccountState
-//				if s_state_enc == nil {
-//					// fmt.Println("missing account SENDER, now adding account")
-//					ib := new(big.Int)
-//					ib.Add(ib, params.Init_Balance)
-//					s_state = &core.AccountState{
-//						Nonce:   uint64(i),
-//						Balance: ib,
-//					}
-//				} else {
-//					s_state = core.DecodeAS(s_state_enc)
-//				}
-//				s_balance := s_state.Balance
-//				if s_balance.Cmp(tx.Value) == -1 {
-//					fmt.Printf("the balance is less than the transfer amount\n")
-//					continue
-//				}
-//
-//				s_state.Deduct(tx.Value)
-//
-//				s_state.Deduct(tx.Fee)
-//
-//				st.Update([]byte(tx.Sender), s_state.Encode())
-//				cnt++
-//			}
-//		}
-//		// recipientIn := false
-//		if bc.Get_PartitionMap(tx.Recipient) == bc.ChainConfig.ShardID || tx.HasBroker {
-//			if !tx.Isbrokertx1 {
-//				// fmt.Printf("the recipient %s is in this shard %d, \n", tx.Recipient, bc.ChainConfig.ShardID)
-//				// recipientIn = true
-//				// modify local state
-//				r_state_enc, _ := st.Get([]byte(tx.Recipient))
-//				var r_state *core.AccountState
-//				if r_state_enc == nil {
-//					// fmt.Println("missing account RECIPIENT, now adding account")
-//					ib := new(big.Int)
-//					ib.Add(ib, params.Init_Balance)
-//					r_state = &core.AccountState{
-//						Nonce:   uint64(i),
-//						Balance: ib,
-//					}
-//				} else {
-//					r_state = core.DecodeAS(r_state_enc)
-//				}
-//				r_state.Deposit(tx.Value)
-//				st.Update([]byte(tx.Recipient), r_state.Encode())
-//				cnt++
-//			}
-//		}
-//
-//		// if senderIn && !recipientIn {
-//		// 	// change this part to the pbft stage
-//		// 	fmt.Printf("this transaciton is cross-shard txs, will be sent to relaypool later\n")
-//		// }
-//	}
-//	// commit the memory trie to the database in the disk
-//	if cnt == 0 {
-//		return common.BytesToHash(bc.CurrentBlock.Header.StateRoot)
-//	}
-//	rt, ns := st.Commit(false)
-//	err = bc.triedb.Update(trie.NewWithNodeSet(ns))
-//	if err != nil {
-//		log.Panic()
-//	}
-//	err = bc.triedb.Commit(rt, false)
-//	if err != nil {
-//		log.Panic(err)
-//	}
-//	fmt.Println("modified account number is ", cnt)
-//	return rt
-//}
-
 type ChainContext interface {
-	// Engine retrieves the chain's consensus engine.
-	//Engine() consensus.Engine
-
-	// GetHeader returns the header corresponding to the hash/number argument pair.
 	GetHeader(common.Hash, uint64) *core.BlockHeader
 }
 
@@ -1143,13 +589,6 @@ func (bc *BlockChain) NewGenisisBlock() *core.Block {
 
 	statusTrie := trie.NewEmpty(bc.Triedb)
 
-	// build a new trie database by db
-	//triedb := trie.NewDatabaseWithConfig(bc.db, &trie.Config{
-	//	Cache:     0,
-	//	Preimages: true,
-	//})
-	//bc.triedb = triedb
-	//statusTrie := trie.NewEmpty(triedb)
 	bh.StateRoot = statusTrie.Hash().Bytes()
 	global2.Root = statusTrie.Hash()
 	bh.TxRoot = GetTxTreeRoot(body)

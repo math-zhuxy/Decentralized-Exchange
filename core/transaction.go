@@ -8,12 +8,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/gob"
-	"encoding/hex"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 	"log"
 	"math/big"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type Transaction struct {
@@ -51,9 +51,8 @@ type Transaction struct {
 	IsContract       bool
 	IsBrokerContract bool
 
-	Log []state.Wrapper
+	Log  []state.Wrapper
 	UUID string
-
 }
 
 func (tx *Transaction) PrintTx() string {
@@ -114,88 +113,4 @@ func NewTransaction(sender, recipient string, value *big.Int, nonce uint64, fee 
 	tx.IsAllocatedSender = false
 	tx.IsAllocatedRecipent = false
 	return tx
-}
-
-func NewTransactionContractBroker(sender, recipient string, value *big.Int, nonce uint64, bytes []byte) *Transaction {
-	s1, _ := hex.DecodeString(sender)
-	s2, _ := hex.DecodeString(recipient)
-	tx := &Transaction{
-		Sender:    sender,
-		Recipient: recipient,
-		Value:     value,
-		Nonce:     nonce,
-		Fee:       big.NewInt(0),
-		From:      common.Address(s1),
-		Time:      time.Now(),
-	}
-
-	var s3 [20]byte
-	if recipient == "" {
-		s3 = stringToFixedByteArray("")
-		tx.To = s3
-	} else {
-		tx.To = common.Address(s2)
-	}
-
-	hash := sha256.Sum256(tx.Encode())
-	tx.TxHash = hash[:]
-	tx.Relayed = false
-	tx.FinalRecipient = ""
-	tx.OriginalSender = ""
-	tx.RawTxHash = nil
-	tx.HasBroker = false
-	tx.SenderIsBroker = false
-	tx.IsAllocatedSender = false
-	tx.IsAllocatedRecipent = false
-	tx.Data = bytes
-	tx.IsContract = true
-	tx.IsBrokerContract = true
-	return tx
-}
-
-func NewTransactionContract(sender, recipient string, value *big.Int, nonce uint64, bytes []byte) *Transaction {
-	s1, _ := hex.DecodeString(sender)
-	s2, _ := hex.DecodeString(recipient)
-	tx := &Transaction{
-		Sender:    sender,
-		Recipient: recipient,
-		Value:     value,
-		Nonce:     nonce,
-		Fee:       big.NewInt(0),
-		From:      common.Address(s1),
-		Time:      time.Now(),
-	}
-
-	var s3 [20]byte
-	if recipient == "" {
-		s3 = stringToFixedByteArray("")
-		tx.To = s3
-	} else {
-		tx.To = common.Address(s2)
-	}
-
-	hash := sha256.Sum256(tx.Encode())
-	tx.TxHash = hash[:]
-	tx.Relayed = false
-	tx.FinalRecipient = ""
-	tx.OriginalSender = ""
-	tx.RawTxHash = nil
-	tx.HasBroker = false
-	tx.SenderIsBroker = false
-	tx.IsAllocatedSender = false
-	tx.IsAllocatedRecipent = false
-	tx.Data = bytes
-	tx.IsContract = true
-	return tx
-}
-
-func stringToFixedByteArray(s string) [20]byte {
-	var b [20]byte
-	copy(b[:], []byte(s)) // 将s的字节复制到b的前len(s)个位置
-	// 如果需要，可以在这里手动填充剩余的字节
-	// 例如，填充为0
-	for i := len(s); i < 20; i++ {
-		b[i] = 0
-	}
-	return b
 }
