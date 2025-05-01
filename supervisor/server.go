@@ -52,12 +52,6 @@ func (d *Supervisor) queryForAccBalance(addr string, tx_type string) *big.Int {
 }
 
 func (d *Supervisor) RunHTTP() error {
-
-	go func() {
-		for {
-			time.Sleep(time.Millisecond * 1000)
-		}
-	}()
 	var Clt = client.NewClient("127.0.0.1:17777")
 
 	r := gin.Default()
@@ -165,6 +159,10 @@ func (d *Supervisor) RunHTTP() error {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Type is required"})
 			return
 		}
+		if !slices.Contains(params.Transaction_Types, tx_type) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx Type"})
+			return
+		}
 
 		n := d.queryForAccBalance(addr, tx_type)
 
@@ -182,6 +180,7 @@ func (d *Supervisor) RunHTTP() error {
 		token := c.Query("token")
 		tx_type_from := c.Query("type_from")
 		tx_type_to := c.Query("type_to")
+
 		if addr == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Address is required"})
 			return
@@ -192,6 +191,14 @@ func (d *Supervisor) RunHTTP() error {
 		}
 		if tx_type_to == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Type To is required"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type_from) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx From Type"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type_to) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx To Type"})
 			return
 		}
 		tokenInt, success := new(big.Int).SetString(token, 10)
@@ -237,6 +244,10 @@ func (d *Supervisor) RunHTTP() error {
 		}
 		if tx_type == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Type is required"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx Type"})
 			return
 		}
 		if token == "" {
