@@ -20,14 +20,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"sync"
-
-	"github.com/gin-gonic/gin"
 )
+
+type accBalMap struct {
+	isLatest bool
+	balance  *big.Int
+}
 
 type Supervisor struct {
 	// basic infos
@@ -59,6 +62,9 @@ type Supervisor struct {
 
 	contractAllowMap      map[uint64]map[string]struct{}
 	contractAllowMapMutex sync.Mutex
+
+	accountBalanceMap map[string]map[string]*accBalMap
+	accBalanceMapLock sync.Mutex
 }
 
 func (d *Supervisor) NewSupervisor(ip string, pcc *params.ChainConfig, committeeMethod string, measureModNames ...string) {
@@ -67,6 +73,12 @@ func (d *Supervisor) NewSupervisor(ip string, pcc *params.ChainConfig, committee
 	d.Ip_nodeTable = params.IPmap_nodeTable
 	d.CommitteeMethod = committeeMethod
 	d.sl = supervisor_log.NewSupervisorLog()
+
+	accBalanceMap := make(map[string]map[string]*accBalMap)
+	for _, tx_type := range params.Transaction_Types {
+		accBalanceMap[tx_type] = make(map[string]*accBalMap)
+	}
+	d.accountBalanceMap = accBalanceMap
 
 	d.Ss = signal.NewStopSignal(2 * int(pcc.ShardNums))
 	d.contractCreationMap = make(map[uint64]string)
@@ -245,22 +257,6 @@ func getMyIp() string {
 	return "127.0.0.1"
 }
 
-// 解决跨域问题
-func CorsConfig() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*") // 可将将 * 替换为指定的域名
-		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
-		c.Header("Access-Control-Allow-Headers", "*")
-		c.Header("Access-Control-Expose-Headers", "*")
-		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(200)
-		} else {
-			c.Next()
-		}
-	}
-}
 func (d *Supervisor) handleResponseAcc(content []byte) {
 	msg := new(message.AccountRes)
 	err := json.Unmarshal(content, msg)
@@ -295,7 +291,8 @@ func (d *Supervisor) handleMessage(msg []byte) {
 		d.handleQueryContractResultRes(content)
 	case message.CResponseAccount:
 		go d.handleResponseAcc(content)
-
+	case message.DAccountBalanceReply:
+		go d.handleAccountBalReply(content)
 		// add codes for more functionality
 	default:
 		d.ComMod.HandleOtherMessage(msg)
@@ -306,6 +303,20 @@ func (d *Supervisor) handleMessage(msg []byte) {
 }
 
 var QueryContractResultResMap = make(map[string]chan []byte)
+
+func (d *Supervisor) handleAccountBalReply(content []byte) {
+	con := new(message.AccountBalanceReply)
+	err := json.Unmarshal(content, con)
+	if err != nil {
+		log.Panic()
+	}
+	d.accBalanceMapLock.Lock()
+	defer d.accBalanceMapLock.Unlock()
+	accMap := new(accBalMap)
+	accMap.isLatest = true
+	accMap.balance = new(big.Int).Set(con.Balance)
+	d.accountBalanceMap[con.TXType][con.Addr] = accMap
+}
 
 func (d *Supervisor) handleQueryContractResultRes(content []byte) {
 	m := new(message.QueryContractResultRes)

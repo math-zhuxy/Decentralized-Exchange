@@ -40,6 +40,9 @@ type Transaction struct {
 	RawTxHash           []byte
 	Isbrokertx1         bool
 	Isbrokertx2         bool
+	ShouldHandleInBlock bool
+	// 0：非正常，1：减少，2：增加
+	IncreaseOrDecrease uint8
 
 	//Isimportant bool
 
@@ -112,5 +115,7 @@ func NewTransaction(sender, recipient string, value *big.Int, nonce uint64, fee 
 	tx.SenderIsBroker = false
 	tx.IsAllocatedSender = false
 	tx.IsAllocatedRecipent = false
+	tx.ShouldHandleInBlock = false
+	tx.IncreaseOrDecrease = 0
 	return tx
 }

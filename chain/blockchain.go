@@ -41,6 +41,7 @@ type BlockChain struct {
 	Storage      *storage.Storage    // Storage is the bolt-db to store the blocks
 	Txpool       *core.TxPool        // the transaction pool
 	Iptable      map[uint64]map[uint64]string
+	BalanceMap   map[string]map[string]*big.Int
 }
 
 // Get the transaction root, this root can be used to check the transactions
@@ -109,7 +110,7 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 			global.GLobalLock.Unlock()
 			break
 		}
-
+		bc.dealAccountBalance(tx)
 		ExeTx(tx, statedb, blockHeader, bc, idx, gp, UUID)
 
 		global.GLobalLock.Lock()
@@ -137,6 +138,33 @@ func (bc *BlockChain) GetUpdateStatusTrie(txs []*core.Transaction, blockHeader *
 	}
 
 	return hash
+}
+
+func (bc *BlockChain) changeAccBalance(addr string, val *big.Int, deal_type bool, tx_type string) {
+	if bc.BalanceMap[tx_type][addr] == nil {
+		bc.BalanceMap[tx_type][addr] = new(big.Int).Set(params.Init_Balance)
+	}
+	if deal_type {
+		bc.BalanceMap[tx_type][addr].Add(bc.BalanceMap[tx_type][addr], val)
+	} else {
+		bc.BalanceMap[tx_type][addr].Sub(bc.BalanceMap[tx_type][addr], val)
+	}
+}
+
+func (bc *BlockChain) dealAccountBalance(tx *core.Transaction) {
+	if !tx.ShouldHandleInBlock {
+		return
+	}
+	if tx.Sender == tx.Recipient {
+		if tx.IncreaseOrDecrease == 2 {
+			bc.changeAccBalance(tx.Sender, tx.Value, true, tx.Txtype)
+		} else if tx.IncreaseOrDecrease == 1 {
+			bc.changeAccBalance(tx.Sender, tx.Value, false, tx.Txtype)
+		}
+		return
+	}
+	bc.changeAccBalance(tx.Sender, tx.Value, false, tx.Txtype)
+	bc.changeAccBalance(tx.Recipient, tx.Value, true, tx.Txtype)
 }
 
 func ExeTx(tx *core.Transaction, statedb *state.StateDB, blockHeader *core.BlockHeader, bc *BlockChain, idx int, gp *vm.GasPool, UUID string) {
@@ -216,26 +244,10 @@ func NewEVMBlockContext(header *core.BlockHeader, chain ChainContext, author *co
 	}
 }
 func GetHashFn(ref *core.BlockHeader, chain ChainContext) func(n uint64) common.Hash {
-	// Cache will initially contain [refHash.parent],
-	// Then fill up with [refHash.p, refHash.pp, refHash.ppp, ...]
-	//var cache []common.Hash
-
 	return func(n uint64) common.Hash {
 		if ref.Number <= n {
-			// This situation can happen if we're doing tracing and using
-			// block overrides.
 			return common.Hash{}
 		}
-		// If there's no hash cache yet, make one
-		//if len(cache) == 0 {
-		//	cache = append(cache, ref.ParentHash)
-		//}
-		//if idx := ref.Number - n - 1; idx < uint64(len(cache)) {
-		//	return cache[idx]
-		//}
-		// No luck in the cache, but we can start iterating from the last element we already know
-		//lastKnownHash := cache[len(cache)-1]
-		//lastKnownNumber := ref.Number - uint64(len(cache))
 		lastKnownHash := ref.ParentHash
 		lastKnownNumber := n
 
@@ -365,6 +377,10 @@ func NewBlockChain(cc *params.ChainConfig, db ethdb.Database, Iptable map[uint64
 		Preimages: true,
 		IsVerkle:  false,
 	})
+	balance_map := make(map[string]map[string]*big.Int)
+	for _, tx_type := range params.Transaction_Types {
+		balance_map[tx_type] = make(map[string]*big.Int)
+	}
 	chainDBfp := "./record/" + fmt.Sprintf("chainDB/S%d_N%d", cc.ShardID, cc.NodeID)
 	bc := &BlockChain{
 		Db:          db,
@@ -373,8 +389,8 @@ func NewBlockChain(cc *params.ChainConfig, db ethdb.Database, Iptable map[uint64
 		ChainConfig: cc,
 		Txpool:      core.NewTxPool(),
 		Storage:     storage.NewStorage(chainDBfp, cc),
-		//PartitionMap: make(map[string]uint64),
-		Iptable: Iptable,
+		Iptable:     Iptable,
+		BalanceMap:  balance_map,
 	}
 	curHash, err := bc.Storage.GetNewestBlockHash()
 	if err != nil {

@@ -3,7 +3,6 @@ package supervisor
 import (
 	"blockEmulator/client"
 	"blockEmulator/core"
-	"blockEmulator/global"
 	"blockEmulator/message"
 	"blockEmulator/networks"
 	"blockEmulator/params"
@@ -15,13 +14,42 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"sync"
 	"time"
 
 	"slices"
 
 	"github.com/gin-gonic/gin"
 )
+
+func (d *Supervisor) queryForAccBalance(addr string, tx_type string) *big.Int {
+	msg := &message.AccountBalanceQuery{
+		Addr:   addr,
+		TXType: tx_type,
+	}
+	msg_bytes, _ := json.Marshal(msg)
+	final_msg := message.MergeMessage(message.DAccountBalanceQuery, msg_bytes)
+	go networks.TcpDial(final_msg, d.Ip_nodeTable[uint64(utils.Addr2Shard(addr))][0])
+	acc_bal := new(big.Int)
+	for {
+		time.Sleep(time.Microsecond * 100)
+		d.accBalanceMapLock.Lock()
+		info := d.accountBalanceMap[tx_type][addr]
+		if info == nil {
+			d.accBalanceMapLock.Unlock()
+			continue
+		}
+		if info.isLatest {
+			acc_bal.Set(info.balance)
+			info.isLatest = false
+			d.accountBalanceMap[tx_type][addr] = info
+			d.accBalanceMapLock.Unlock()
+			break
+		} else {
+			d.accBalanceMapLock.Unlock()
+		}
+	}
+	return acc_bal
+}
 
 func (d *Supervisor) RunHTTP() error {
 
@@ -125,44 +153,20 @@ func (d *Supervisor) RunHTTP() error {
 		}
 	})
 
-	var QueryLock sync.Mutex
-
 	// 查询账户余额
 	router.GET("/query-g", func(c *gin.Context) {
-		QueryLock.Lock()
-		defer QueryLock.Unlock()
 		addr := c.Query("addr")
 		if addr == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Address is required"})
 			return
 		}
-		fmt.Println("addr:", addr)
-
-		m := new(message.QueryAccount)
-		m.FromNodeID = 0
-		m.FromShardID = params.DeciderShard
-		m.Account = addr
-		global.AccBalanceMapLock.Lock()
-		delete(global.AccBalanceMap, addr)
-		global.AccBalanceMapLock.Unlock()
-		b, _ := json.Marshal(m)
-		ms := message.MergeMessage(message.CQueryAccount, b)
-		go networks.TcpDial(ms, d.Ip_nodeTable[uint64(utils.Addr2Shard(addr))][0])
-		var Balance uint64
-		for {
-			global.AccBalanceMapLock.Lock()
-			if balance, ok := global.AccBalanceMap[addr]; ok {
-				Balance = balance
-				delete(global.AccBalanceMap, addr)
-				global.AccBalanceMapLock.Unlock()
-				break
-			} else {
-				global.AccBalanceMapLock.Unlock()
-				time.Sleep(time.Millisecond * 100)
-			}
+		tx_type := c.Query("type")
+		if tx_type == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type is required"})
+			return
 		}
 
-		n := big.NewInt(int64(Balance))
+		n := d.queryForAccBalance(addr, tx_type)
 
 		r := ReturnAccountState{
 			AccountAddr: addr,
@@ -172,63 +176,67 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, r)
 	})
 
+	router.GET("/exchange", func(c *gin.Context) {
+		addr := c.Query("addr")
+		d := c.MustGet("supervisor").(*Supervisor)
+		token := c.Query("token")
+		tx_type_from := c.Query("type_from")
+		tx_type_to := c.Query("type_to")
+		if addr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Address is required"})
+			return
+		}
+		if tx_type_from == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type From is required"})
+			return
+		}
+		if tx_type_to == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type To is required"})
+			return
+		}
+		tokenInt, success := new(big.Int).SetString(token, 10)
+		if !success {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		if tokenInt.Cmp(big.NewInt(0)) <= 0 {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		tx := core.NewTransaction(addr, addr, tokenInt, uint64(123), big.NewInt(0), tx_type_from)
+		tx.ShouldHandleInBlock = true
+		tx.IncreaseOrDecrease = 1
+		tx_2 := core.NewTransaction(addr, addr, tokenInt, uint64(123), big.NewInt(0), tx_type_to)
+		tx_2.ShouldHandleInBlock = true
+		tx_2.IncreaseOrDecrease = 2
+		txs := make([]*core.Transaction, 0)
+		txs = append(txs, tx)
+		txs = append(txs, tx_2)
+		it := message.InjectTxs{
+			Txs:       txs,
+			ToShardID: Clt.GetAddr2ShardMap(addr),
+		}
+		itByte, err2 := json.Marshal(it)
+		if err2 != nil {
+			log.Panic(err2)
+		}
+		send_msg := message.MergeMessage(message.CInjectHead, itByte)
+		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(addr)][0])
+		c.JSON(http.StatusOK, gin.H{"msg": "Done!"})
+	})
+
 	router.GET("/applybroker", func(c *gin.Context) {
 
 		addr := c.Query("addr")
 		d := c.MustGet("supervisor").(*Supervisor)
+		token := c.Query("token")
+		tx_type := c.Query("type")
 		if addr == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Address is required"})
 			return
 		}
-		broker := d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Lock()
-		if !broker.IsBroker(addr) {
-			broker.BrokerAddress = append([]string{addr}, broker.BrokerAddress...)
-
-			for _, tx_type := range params.Transaction_Types {
-
-				broker.BrokerBalance[tx_type][addr] = make(map[uint64]*big.Int)
-				for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-					broker.BrokerBalance[tx_type][addr][sid] = new(big.Int).Set(big.NewInt(0))
-				}
-				broker.LockBalance[tx_type][addr] = make(map[uint64]*big.Int)
-				for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-					broker.LockBalance[tx_type][addr][sid] = new(big.Int).Set(big.NewInt(0))
-				}
-
-				broker.ProfitBalance[tx_type][addr] = make(map[uint64]*big.Float)
-				for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-					broker.ProfitBalance[tx_type][addr][sid] = new(big.Float).Set(big.NewFloat(0))
-				}
-			}
-		}
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Unlock()
-
-		c.JSON(http.StatusOK, gin.H{"message": "申请成为Broker成功!"})
-	})
-
-	//申请成为broker/质押更多的钱
-	router.GET("BecomeBrokerOrStakeMore", func(c *gin.Context) {
-		d := c.MustGet("supervisor").(*Supervisor)
-		addr := c.Query("addr")
-		money_type := c.Query("type")
-		if !slices.Contains(params.Transaction_Types, money_type) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx Type"})
-			return
-		}
-
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Lock()
-		isBroker := d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.IsBroker(addr)
-		if !isBroker {
-			c.JSON(http.StatusOK, gin.H{"error": "not a broker,cannot invoke Stake!"})
-			d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Unlock()
-			return
-		}
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Unlock()
-
-		token := c.Query("token") //申请质押的钱
-		if addr == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Address is required"})
+		if tx_type == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type is required"})
 			return
 		}
 		if token == "" {
@@ -244,64 +252,9 @@ func (d *Supervisor) RunHTTP() error {
 			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
 			return
 		}
-		balancepershard := new(big.Int).Div(tokenInt, new(big.Int).SetInt64(int64(params.ShardNum)))
-
-		if balancepershard.Cmp(big.NewInt(0)) == 0 {
-			c.JSON(http.StatusOK, gin.H{"error": "Please stake more tokens"})
-			return
-		}
-
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).LastInvokeTimeMutex.Lock()
-		invokeTime := d.ComMod.(*committee.BrokerCommitteeMod_b2e).LastInvokeTime
-		if lastInvokeTime, exist := invokeTime[addr]; exist {
-			if time.Since(lastInvokeTime) < 15*time.Second {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Stake request too frequent! Please wait a moment !"})
-				d.ComMod.(*committee.BrokerCommitteeMod_b2e).LastInvokeTimeMutex.Unlock()
-				return
-			}
-			d.ComMod.(*committee.BrokerCommitteeMod_b2e).LastInvokeTime[addr] = time.Now()
-		} else {
-			d.ComMod.(*committee.BrokerCommitteeMod_b2e).LastInvokeTime[addr] = time.Now()
-		}
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).LastInvokeTimeMutex.Unlock()
-
-		fmt.Println(addr)
-		fmt.Println(token)
-
-		//查询账户余额
-		Clt.AccountStateMapLock.Lock()
-		delete(Clt.AccountStateRequestMap, addr)
-		Clt.AccountStateMapLock.Unlock()
-		Clt.SendAccountStateRequest2Worker(addr)
-		beginRequestTime := time.Now()
-		var balance *big.Int
-		for time.Since(beginRequestTime) < time.Second*10 {
-			Clt.AccountStateMapLock.Lock()
-			if state, ok := Clt.AccountStateRequestMap[addr]; ok {
-				balance = state.Balance
-				Clt.AccountStateMapLock.Unlock()
-				break
-			}
-			Clt.AccountStateMapLock.Unlock()
-			time.Sleep(time.Millisecond * 30)
-		}
-		if balance == nil {
-			fmt.Println("balance is nil")
-			c.JSON(http.StatusOK, gin.H{"error": "balance is nil"})
-			return
-		}
-		fmt.Println("balnce is ", balance)
-
-		//校验余额要大于等于质押的token
-		if balance.Uint64() < tokenInt.Uint64() {
-			c.JSON(http.StatusOK, gin.H{"error": "Your balance is less than the required stake amount."})
-			return
-		}
-
-		tokenInt = new(big.Int).Mul(balancepershard, new(big.Int).SetInt64(int64(params.ShardNum)))
-		//扣减余额
-		tx := core.NewTransaction(addr, addr, new(big.Int).Abs(tokenInt), uint64(123), big.NewInt(0), money_type)
-		tx.IsAllocatedSender = true
+		tx := core.NewTransaction(addr, addr, new(big.Int).Abs(tokenInt), uint64(123), big.NewInt(0), tx_type)
+		tx.ShouldHandleInBlock = true
+		tx.IncreaseOrDecrease = 1
 		txs := make([]*core.Transaction, 0)
 		txs = append(txs, tx)
 		it := message.InjectTxs{
@@ -314,41 +267,37 @@ func (d *Supervisor) RunHTTP() error {
 		}
 		send_msg := message.MergeMessage(message.CInjectHead, itByte)
 		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(addr)][0])
+		balancepershard := new(big.Int).Div(tokenInt, new(big.Int).SetInt64(int64(params.ShardNum)))
 
-		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Lock()
-		defer d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Unlock()
-
-		//添加各分片余额到broker数据结构中
-
-		broker := d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker
-		if !broker.IsBroker(addr) {
-			broker.BrokerAddress = append([]string{addr}, broker.BrokerAddress...)
-
-			broker.BrokerBalance[money_type][addr] = make(map[uint64]*big.Int)
-			for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-				broker.BrokerBalance[money_type][addr][sid] = new(big.Int).Set(balancepershard)
-			}
-			broker.LockBalance[money_type][addr] = make(map[uint64]*big.Int)
-			for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-				broker.LockBalance[money_type][addr][sid] = new(big.Int).Set(big.NewInt(0))
-			}
-
-			broker.ProfitBalance[money_type][addr] = make(map[uint64]*big.Float)
-			for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-				broker.ProfitBalance[money_type][addr][sid] = new(big.Float).Set(big.NewFloat(0))
-			}
-
-		} else {
-			for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
-				broker.BrokerBalance[money_type][addr][sid] = new(big.Int).Add(
-					broker.BrokerBalance[money_type][addr][sid],
-					balancepershard,
-				)
-			}
+		if balancepershard.Cmp(big.NewInt(0)) == 0 {
+			c.JSON(http.StatusOK, gin.H{"error": "Please stake more tokens"})
+			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "Successfully stake " + tokenInt.String() + " tokens to B2E"})
+		broker := d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker
+		if broker.IsBroker(addr) {
+			c.JSON(http.StatusOK, gin.H{"msg": "Already Broker"})
+			return
+		}
+		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Lock()
+		broker.BrokerAddress = append([]string{addr}, broker.BrokerAddress...)
+		broker.BrokerBalance[tx_type][addr] = make(map[uint64]*big.Int)
+		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
+			broker.BrokerBalance[tx_type][addr][sid] = new(big.Int).Set(balancepershard)
+		}
+		broker.LockBalance[tx_type][addr] = make(map[uint64]*big.Int)
+		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
+			broker.LockBalance[tx_type][addr][sid] = new(big.Int).Set(big.NewInt(0))
+		}
 
+		broker.ProfitBalance[tx_type][addr] = make(map[uint64]*big.Float)
+		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
+			broker.ProfitBalance[tx_type][addr][sid] = new(big.Float).Set(big.NewFloat(0))
+		}
+
+		d.ComMod.(*committee.BrokerCommitteeMod_b2e).BrokerBalanceLock.Unlock()
+
+		c.JSON(http.StatusOK, gin.H{"message": "申请成为Broker成功!"})
 	})
 
 	router.GET("withdrawbroker", func(c *gin.Context) {
@@ -373,6 +322,9 @@ func (d *Supervisor) RunHTTP() error {
 		var profit *big.Float
 		profitUint64 := uint64(0)
 		for _, money_type := range params.Transaction_Types {
+			if d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.BrokerBalance[money_type][addr] == nil {
+				continue
+			}
 			profit = new(big.Float).SetFloat64(0)
 			for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
 				profit = new(big.Float).Add(new(big.Float).SetInt(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.BrokerBalance[money_type][addr][sid]), profit)
@@ -387,7 +339,8 @@ func (d *Supervisor) RunHTTP() error {
 			profitUint64 += uint64(pf)
 			//返还到账户余额
 			tx := core.NewTransaction(addr, addr, new(big.Int).SetUint64(profitUint64), uint64(123), big.NewInt(0), money_type)
-			tx.IsAllocatedRecipent = true
+			tx.ShouldHandleInBlock = true
+			tx.IncreaseOrDecrease = 2
 			txs := make([]*core.Transaction, 0)
 			txs = append(txs, tx)
 			it := message.InjectTxs{
@@ -400,13 +353,13 @@ func (d *Supervisor) RunHTTP() error {
 			}
 			send_msg := message.MergeMessage(message.CInjectHead, itByte)
 			go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(addr)][0])
+			delete(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.BrokerBalance[money_type], addr)
+			delete(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.LockBalance[money_type], addr)
+			delete(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.ProfitBalance[money_type], addr)
 		}
 
 		//从broker数据结构中删除该地址
 		d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.BrokerAddress = removeElement(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.BrokerAddress, addr)
-		delete(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.BrokerBalance, addr)
-		delete(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.LockBalance, addr)
-		delete(d.ComMod.(*committee.BrokerCommitteeMod_b2e).Broker.ProfitBalance, addr)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Successfully withdraw " + new(big.Int).SetUint64(profitUint64).String() + " tokens from B2E"})
 	})
@@ -417,4 +370,21 @@ func (d *Supervisor) RunHTTP() error {
 		return err
 	}
 	return nil
+}
+
+// 解决跨域问题
+func CorsConfig() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*") // 可将将 * 替换为指定的域名
+		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
+		c.Header("Access-Control-Allow-Headers", "*")
+		c.Header("Access-Control-Expose-Headers", "*")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(200)
+		} else {
+			c.Next()
+		}
+	}
 }

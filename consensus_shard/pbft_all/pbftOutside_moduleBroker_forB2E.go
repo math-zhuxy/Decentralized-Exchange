@@ -2,8 +2,11 @@ package pbft_all
 
 import (
 	"blockEmulator/message"
+	"blockEmulator/networks"
+	"blockEmulator/params"
 	"encoding/json"
 	"log"
+	"math/big"
 )
 
 // This module used in the blockChain using transaction relaying mechanism.
@@ -21,9 +24,33 @@ func (rrom *RawBrokerOutsideModule_forB2E) HandleMessageOutsidePBFT(msgType mess
 		rrom.handleInjectTx(content)
 	case message.CInjectHead:
 		rrom.handleInjectTxHead(content)
+	case message.DAccountBalanceQuery:
+		rrom.handleAccQuery(content)
 	default:
 	}
 	return true
+}
+
+func (rrom *RawBrokerOutsideModule_forB2E) handleAccQuery(content []byte) {
+	it := new(message.AccountBalanceQuery)
+	err := json.Unmarshal(content, it)
+	if err != nil {
+		log.Panic(err)
+	}
+	balance := new(big.Int)
+	if rrom.pbftNode.CurChain.BalanceMap[it.TXType][it.Addr] == nil {
+		balance.Set(params.Init_Balance)
+	} else {
+		balance.Set(rrom.pbftNode.CurChain.BalanceMap[it.TXType][it.Addr])
+	}
+	msg := &message.AccountBalanceReply{
+		Addr:    it.Addr,
+		Balance: balance,
+		TXType:  it.TXType,
+	}
+	msg_bytes, _ := json.Marshal(msg)
+	final_msg := message.MergeMessage(message.DAccountBalanceReply, msg_bytes)
+	go networks.TcpDial(final_msg, params.SupervisorAddr)
 }
 
 // receive SeqIDinfo

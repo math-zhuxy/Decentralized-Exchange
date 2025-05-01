@@ -1,6 +1,9 @@
 package message
 
-import "blockEmulator/core"
+import (
+	"blockEmulator/core"
+	"math/big"
+)
 
 var (
 	CClientRequestAccountState MessageType = "RequestAccountState"
@@ -9,6 +12,11 @@ var (
 var (
 	CAccountStateForClient       MessageType = "AccountStateForClient"
 	CAccountTransactionForClient MessageType = "AccountTransactionsForClient"
+)
+
+var (
+	DAccountBalanceQuery MessageType = "DAccBalQ"
+	DAccountBalanceReply MessageType = "DAccBalR"
 )
 
 type ClientRequestAccountState struct {
@@ -33,4 +41,15 @@ type AccountTransactionsForClient struct {
 	AccountAddr string
 	ShardID     int
 	Txs         []*core.Transaction
+}
+
+type AccountBalanceQuery struct {
+	Addr   string
+	TXType string
+}
+
+type AccountBalanceReply struct {
+	Addr    string
+	Balance *big.Int
+	TXType  string
 }
