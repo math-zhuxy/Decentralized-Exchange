@@ -311,7 +311,7 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, gin.H{"message": "申请成为Broker成功!"})
 	})
 
-	router.GET("withdrawbroker", func(c *gin.Context) {
+	router.GET("/withdrawbroker", func(c *gin.Context) {
 		d := c.MustGet("supervisor").(*Supervisor)
 		addr := c.Query("addr")
 		if addr == "" {
