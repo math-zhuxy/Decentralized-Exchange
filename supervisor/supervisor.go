@@ -32,6 +32,12 @@ type accBalMap struct {
 	balance  *big.Int
 }
 
+type ammModel struct {
+	bkc          *big.Int
+	badge        *big.Int
+	constant_val *big.Int
+}
+
 type Supervisor struct {
 	// basic infos
 	IPaddr       string // ip address of this Supervisor
@@ -64,6 +70,8 @@ type Supervisor struct {
 	contractAllowMapMutex sync.Mutex
 
 	accountBalanceMap map[string]map[string]*accBalMap
+
+	amm_model         *ammModel
 	accBalanceMapLock sync.Mutex
 }
 
@@ -79,6 +87,10 @@ func (d *Supervisor) NewSupervisor(ip string, pcc *params.ChainConfig, committee
 		accBalanceMap[tx_type] = make(map[string]*accBalMap)
 	}
 	d.accountBalanceMap = accBalanceMap
+	d.amm_model = new(ammModel)
+	d.amm_model.bkc = new(big.Int).SetUint64(10000000)
+	d.amm_model.badge = new(big.Int).SetUint64(10000000)
+	d.amm_model.constant_val = new(big.Int).Mul(d.amm_model.badge, d.amm_model.bkc)
 
 	d.Ss = signal.NewStopSignal(2 * int(pcc.ShardNums))
 	d.contractCreationMap = make(map[uint64]string)

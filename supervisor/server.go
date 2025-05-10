@@ -210,10 +210,24 @@ func (d *Supervisor) RunHTTP() error {
 			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
 			return
 		}
+		given_money := new(big.Int)
+		if tx_type_from == "BKC" {
+			d.amm_model.bkc.Add(d.amm_model.bkc, tokenInt)
+			rest_badge := new(big.Int).Quo(d.amm_model.constant_val, d.amm_model.bkc)
+			given_money.Sub(d.amm_model.badge, rest_badge)
+			d.amm_model.badge.Set(rest_badge)
+		} else if tx_type_from == "Badge" {
+			d.amm_model.badge.Add(d.amm_model.badge, tokenInt)
+			rest_bkc := new(big.Int).Quo(d.amm_model.constant_val, d.amm_model.badge)
+			given_money.Sub(d.amm_model.badge, rest_bkc)
+			d.amm_model.bkc.Set(rest_bkc)
+		} else {
+			log.Panic()
+		}
 		tx := core.NewTransaction(addr, addr, tokenInt, uint64(123), big.NewInt(0), tx_type_from)
 		tx.ShouldHandleInBlock = true
 		tx.IncreaseOrDecrease = 1
-		tx_2 := core.NewTransaction(addr, addr, tokenInt, uint64(123), big.NewInt(0), tx_type_to)
+		tx_2 := core.NewTransaction(addr, addr, given_money, uint64(123), big.NewInt(0), tx_type_to)
 		tx_2.ShouldHandleInBlock = true
 		tx_2.IncreaseOrDecrease = 2
 		txs := make([]*core.Transaction, 0)
