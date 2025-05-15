@@ -246,6 +246,60 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, gin.H{"msg": "Done!"})
 	})
 
+	router.GET("/queryrate", func(c *gin.Context) {
+		d := c.MustGet("supervisor").(*Supervisor)
+		token := c.Query("token")
+		tx_type_from := c.Query("type_from")
+		tx_type_to := c.Query("type_to")
+		if tx_type_from == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type From is required"})
+			return
+		}
+		if tx_type_to == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type To is required"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type_from) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx From Type"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type_to) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx To Type"})
+			return
+		}
+		tokenInt, success := new(big.Int).SetString(token, 10)
+		if !success {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		if tokenInt.Cmp(big.NewInt(0)) <= 0 {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		given_money := new(big.Int)
+		if tx_type_from == "BKC" {
+			bkc_amount := new(big.Int).Set(d.amm_model.bkc)
+			bkc_amount.Add(bkc_amount, tokenInt)
+			rest_badge := new(big.Int).Quo(d.amm_model.constant_val, bkc_amount)
+			given_money.Sub(d.amm_model.badge, rest_badge)
+		} else if tx_type_from == "Badge" {
+			badge_amount := new(big.Int).Set(d.amm_model.badge)
+			badge_amount.Add(badge_amount, tokenInt)
+			rest_bkc := new(big.Int).Quo(d.amm_model.constant_val, badge_amount)
+			given_money.Sub(d.amm_model.bkc, rest_bkc)
+		} else {
+			log.Panic()
+		}
+		exchange_rate := new(big.Float).Quo(
+			new(big.Float).SetInt(given_money),
+			new(big.Float).SetInt(tokenInt),
+		)
+		c.JSON(http.StatusOK, gin.H{
+			"money": given_money.String(),
+			"rate":  exchange_rate.String(),
+		})
+	})
+
 	router.GET("/applybroker", func(c *gin.Context) {
 
 		addr := c.Query("addr")
