@@ -6,7 +6,6 @@ import (
 	"blockEmulator/message"
 	"blockEmulator/networks"
 	"blockEmulator/params"
-	"blockEmulator/service"
 	"blockEmulator/supervisor/committee"
 	"blockEmulator/utils"
 	"encoding/json"
@@ -96,8 +95,55 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, res)
 	})
 
-	//接收钱包节点发送的交易，交给B2E处理
-	router.POST("/sendTxtoB2E", service.SendTx2Network)
+	router.GET("/transaction", func(c *gin.Context) {
+		from_addr := c.Query("from_addr")
+		to_addr := c.Query("to_addr")
+		token := c.Query("token")
+		tx_type := c.Query("type")
+
+		if from_addr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "From Address is required"})
+			return
+		}
+		if to_addr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "To Address is required"})
+			return
+		}
+		if tx_type == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type is required"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx From Type"})
+			return
+		}
+		tokenInt, success := new(big.Int).SetString(token, 10)
+
+		if !success {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		if tokenInt.Cmp(big.NewInt(0)) <= 0 {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		tx := core.NewTransaction(from_addr, to_addr, tokenInt, 123, new(big.Int).SetUint64(0), tx_type)
+		tx.ShouldHandleInBlock = true
+		txs := make([]*core.Transaction, 0)
+		txs = append(txs, tx)
+		it := message.InjectTxs{
+			Txs:       txs,
+			ToShardID: Clt.GetAddr2ShardMap(from_addr),
+		}
+		itByte, err2 := json.Marshal(it)
+		if err2 != nil {
+			log.Panic(err2)
+		}
+		send_msg := message.MergeMessage(message.CInjectHead, itByte)
+		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(from_addr)][0])
+		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(to_addr)][0])
+		c.JSON(http.StatusOK, gin.H{"msg": "Done!"})
+	})
 
 	//查询broker在各分片的收益
 	router.GET("/querybrokerprofit", func(c *gin.Context) {
