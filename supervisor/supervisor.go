@@ -4,6 +4,7 @@
 package supervisor
 
 import (
+	"blockEmulator/core"
 	"blockEmulator/global"
 	"blockEmulator/message"
 	"blockEmulator/networks"
@@ -12,7 +13,9 @@ import (
 	"blockEmulator/supervisor/measure"
 	"blockEmulator/supervisor/signal"
 	"blockEmulator/supervisor/supervisor_log"
+	"blockEmulator/utils"
 	"bufio"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -25,6 +28,9 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type accBalMap struct {
@@ -136,6 +142,11 @@ func (d *Supervisor) handleBlockInfos(content []byte) {
 
 func (d *Supervisor) SupervisorTxHandling() {
 	d.ComMod.MsgSendingControl()
+
+	// 为了让 brokerchain 一直运行
+	for true {
+		time.Sleep(time.Second)
+	}
 }
 
 const Broker2EarnAddr = "aaaa1a0ac6761fe4fcb6aca7dfa7e7c86e8dbc6d"
@@ -208,6 +219,7 @@ type LogItem struct {
 }
 
 var UUIDToFromMap = make(map[string]string)
+var blockNumber = 0
 
 func removeElement(slice []string, element string) []string {
 	// 遍历切片，找到元素的索引
@@ -515,4 +527,358 @@ func (d *Supervisor) handleContractExecuteSuccess(content []byte) {
 	d.contractAllowMapMutex.Lock()
 	defer d.contractAllowMapMutex.Unlock()
 	d.contractAllowMap[s.ShardId][s.Addr] = struct{}{}
+}
+
+/*
+处理来自客户端的 JSON-RPC 请求，根据请求的 method 字段识别调用的以太坊接口，并构造对应的响应。
+该函数模拟了部分以太坊 JSON-RPC API（如 eth_getBlockByNumber, eth_getBalance, eth_sendTransaction 等），
+用于区块链模拟器中测试或对接外部系统。
+*/
+func handleRpcRequest(d *Supervisor, request *RpcRequest) *RpcResponse {
+	// 根据method字段的值来处理不同的请求
+	response := RpcResponse{
+		Jsonrpc: "2.0",
+		Id:      request.Id,
+	}
+
+	switch request.Method {
+	case "eth_getBlockByNumber":
+		b := &BlockInfo{
+			Number:           "0x1b4",
+			Hash:             "0xdc0818cf78f21a8e70579cb46a43643f78291264dda342ae31049421c82d21ae",
+			ParentHash:       "",
+			Nonce:            "",
+			Sha3Uncles:       "",
+			LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+			TransactionsRoot: "",
+			StateRoot:        "",
+			ReceiptsRoot:     "",
+			Miner:            "0xbb7b8287f3f0a933474a79eae42cbca977791171",
+			Difficulty:       "",
+			TotalDifficulty:  "",
+			ExtraData:        "",
+			Size:             "",
+			GasLimit:         "",
+			GasUsed:          "",
+			Timestamp:        "",
+			Transactions:     nil,
+			Uncles:           nil,
+		}
+		response.Result = b
+	case "eth_chainId":
+		response.Result = "0x1"
+	case "net_version":
+		response.Result = "1"
+	case "eth_accounts":
+		response.Result = []string{
+			"0x107d73d8a49eeb85d32cf465507dd71d507100c1",
+			"0x117d73d8a49eeb85d32cf465507dd71d507100c2",
+			"0x127d73d8a49eeb85d32cf465507dd71d507100c3",
+			"0x137d73d8a49eeb85d32cf465507dd71d507100c4",
+			"0x147d73d8a49eeb85d32cf465507dd71d507100c5",
+			"0x157d73d8a49eeb85d32cf465507dd71d507100c6",
+			"0x167d73d8a49eeb85d32cf465507dd71d507100c7",
+			"0x177d73d8a49eeb85d32cf465507dd71d507100c8",
+			"0x187d73d8a49eeb85d32cf465507dd71d507100c9",
+			"0x197d73d8a49eeb85d32cf465507dd71d507100d0",
+		}
+
+	case "eth_getBalance":
+		acc := request.Params[0].(string)[2:]
+		m := new(message.QueryAccount)
+		m.FromNodeID = 0
+		m.FromShardID = params.DeciderShard
+		m.Account = acc
+
+		global.AccBalanceMapLock.Lock()
+		delete(global.AccBalanceMap, acc)
+		global.AccBalanceMapLock.Unlock()
+		b, _ := json.Marshal(m)
+		ms := message.MergeMessage(message.CQueryAccount, b)
+		go networks.TcpDial(ms, d.Ip_nodeTable[uint64(utils.Addr2Shard(acc))][0])
+		var Balance uint64
+		for true {
+			global.AccBalanceMapLock.Lock()
+			if balance, ok := global.AccBalanceMap[acc]; ok {
+				Balance = balance
+				delete(global.AccBalanceMap, acc)
+				global.AccBalanceMapLock.Unlock()
+				break
+			} else {
+				global.AccBalanceMapLock.Unlock()
+				time.Sleep(time.Millisecond * 100)
+			}
+		}
+
+		n := big.NewInt(int64(Balance))
+		wei, _ := big.NewInt(0).SetString("1000000000000000000", 10)
+		n.Mul(n, wei)
+
+		response.Result = "0x" + n.Text(16)
+
+	case "eth_estimateGas":
+		response.Result = "0x1"
+	case "eth_blockNumber":
+		response.Result = "0x" + fmt.Sprintf("%x", blockNumber)
+	// 假设params[0]是一个字符串（如"latest"），params[1]是一个布尔值
+	//if len(request.Params) == 2 {
+	//	blockNumber, ok := request.Params[0].(string) // 这里假设是一个带有"hex"键的map，实际取决于你的具体需求
+	//	includeTransactions, ok2 := request.Params[1].(bool)
+	//	if ok && ok2 {
+	//		// 处理逻辑...
+	//		response.Result = fmt.Sprintf("Block number: %s, Include transactions: %t", blockNumber, includeTransactions)
+	//	} else {
+	//		response.Error = map[string]interface{}{"code": -32602, "message": "Invalid params"}
+	//	}
+	//} else {
+	//	response.Error = map[string]interface{}{"code": -32602, "message": "Invalid params"}
+	//}
+
+	case "eth_sendTransaction":
+		obj := request.Params[0].(map[string]interface{})
+		from := obj["from"].(string)[2:]
+		to := ""
+		if obj["to"] != nil {
+			to = obj["to"].(string)[2:]
+		}
+		//gas:=""
+		//if obj["gas"] !=nil {
+		//	gas = obj["gas"].(string)
+		//}
+		value := ""
+		if obj["value"] != nil {
+			value = obj["value"].(string)
+		}
+		input := ""
+		if obj["data"] != nil {
+			input = obj["data"].(string)
+		} else if obj["input"] != nil {
+			input = obj["input"].(string)
+		}
+		//gasPrice:=""
+		//if obj["gasPrice"] != nil {
+		//	gasPrice=obj["gasPrice"].(string)
+		//}
+		s := value[2:]
+		if len(s)%2 != 0 {
+			s = "0" + s
+		}
+		byteSlice, err := hex.DecodeString(s)
+		var bigInt big.Int
+		bigInt.SetBytes(byteSlice)
+
+		inp, _ := hex.DecodeString(input[2:])
+		fmt.Println("value为", bigInt.Uint64())
+		fmt.Println("from:", from, ",to:", to)
+		//fmt.Println("utils.Addr2Shard(from):",strconv.Itoa(utils.Addr2Shard(from)),",utils.Addr2Shard(to):",strconv.Itoa(utils.Addr2Shard(to)))
+		fmt.Println("params.ShardNum:", strconv.Itoa(params.ShardNum))
+		fmt.Println("params.ShardNum:", params.ShardNum)
+		Transaction := core.NewTransactionContract(from, to, &bigInt, 1, inp)
+		Transaction.GasPrice = big.NewInt(1)
+		Transaction.Gas = 100000000
+		randomBytes := make([]byte, 32)
+		_, _ = rand.Read(randomBytes)
+		hexString := hex.EncodeToString(randomBytes)
+		Transaction.UUID = hexString
+		UUIDToFromMap[hexString] = from
+		var txs = []*core.Transaction{Transaction}
+		it := message.InjectTxs{
+			Txs:       txs,
+			ToShardID: uint64(utils.Addr2Shard(from)),
+		}
+		itByte, err := json.Marshal(it)
+		if err != nil {
+			log.Panic(err)
+		}
+		send_msg := message.MergeMessage(message.CInject, itByte)
+		go networks.TcpDial(send_msg, d.Ip_nodeTable[uint64(utils.Addr2Shard(from))][0])
+
+		response.Result = "0x" + hexString
+	case "eth_getTransactionReceipt":
+		UUID := request.Params[0].(string)[2:]
+		//QueryContractResultResMap[UUID] = make(chan []byte)
+		//
+		//m := new(message.QueryContractResultReq)
+		//m.FromShardID = params.DeciderShard
+		//m.FromNodeID = 0
+		//m.UUID = UUID
+		//b, _ := json.Marshal(m)
+		//b1 := message.MergeMessage(message.CQueryContractResultReq, b)
+		//go networks.TcpDial(b1, d.Ip_nodeTable[uint64(utils.Addr2Shard(UUIDToFromMap[UUID]))][0])
+		//
+		//data, ok := <-QueryContractResultResMap[UUID]
+		//if !ok {
+		//	// 通道已关闭
+		//	fmt.Println("Channel closed")
+		//	return
+		//}
+		//
+		//fmt.Println("合约地址为" + hex.EncodeToString(data))
+
+		now := time.Now()
+		var tx message.TxInfo
+		var ok bool
+		for time.Since(now).Seconds() < 10 {
+			TxInfoMapLock.Lock()
+			tx, ok = TxInfoMap[UUID]
+			if ok {
+				TxInfoMapLock.Unlock()
+				break
+			}
+			TxInfoMapLock.Unlock()
+			time.Sleep(time.Millisecond * 100)
+		}
+		//res := "0x"+hex.EncodeToString(tx.Res)
+
+		msg := &TxRec{
+			TransactionHash: "0x" + UUID,
+			ContractAddress: "0x" + hex.EncodeToString(tx.Res),
+			GasUsed:         "0x1",
+			Status:          "0x1",
+		}
+
+		if !tx.IsSuccess {
+			msg.Status = "0x0"
+		}
+		//msg.Logs = make([]LogItem, 1)
+		//msg.Logs[0] = LogItem{Data: res}
+		response.Result = msg
+
+	case "eth_getTransactionByHash":
+		UUID := request.Params[0].(string)[2:]
+		now := time.Now()
+		var tx message.TxInfo
+		var ok bool
+		for time.Since(now).Seconds() < 10 {
+			TxInfoMapLock.Lock()
+			tx, ok = TxInfoMap[UUID]
+			if ok {
+				TxInfoMapLock.Unlock()
+				break
+			}
+			TxInfoMapLock.Unlock()
+			time.Sleep(time.Millisecond * 100)
+		}
+
+		r1 := &TransactionResult{
+			BlockHash:        "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+			BlockNumber:      "0x" + fmt.Sprintf("%x", blockNumber),
+			From:             "0x" + hex.EncodeToString(tx.From[:]),
+			Gas:              "0x" + fmt.Sprintf("%x", tx.GasLimit),
+			GasPrice:         "0x" + fmt.Sprintf("%x", tx.GasPrice),
+			Hash:             "0x" + UUID,
+			Input:            "0x" + hex.EncodeToString(tx.Input[:]),
+			Nonce:            "0x15",
+			To:               "",
+			TransactionIndex: "0x41",
+			Value:            "0x" + tx.Value.Text(16),
+			V:                "0x25",
+			R:                "0x1b5e176d927f8e9ab405058b2d2457392da3e20f328b16ddabcebc33eaac5fea",
+			S:                "0x4ba69724e8f69de52f0125ad8b3c5c2cef33019bac3249e2c0a2192766d1721c",
+		}
+		cc := common.Address{}
+		if tx.To != cc {
+			r1.To = "0x" + hex.EncodeToString(tx.To[:])
+		}
+		response.Result = r1
+
+	case "eth_call":
+		obj := request.Params[0].(map[string]interface{})
+		from := obj["from"].(string)[2:]
+		to := ""
+		if obj["to"] != nil {
+			to = obj["to"].(string)[2:]
+		}
+		input := ""
+		if obj["data"] != nil {
+			input = obj["data"].(string)
+		} else if obj["input"] != nil {
+			input = obj["input"].(string)
+		}
+		//gasPrice:=""
+		//if obj["gasPrice"] != nil {
+		//	gasPrice=obj["gasPrice"].(string)
+		//}
+		//s:=value[2:]
+		//if len(s) %2!=0{
+		//	s="0"+s
+		//}
+		//byteSlice, err := hex.DecodeString(s)
+		//var bigInt big.Int
+		//bigInt.SetBytes(byteSlice)
+
+		inp, _ := hex.DecodeString(input[2:])
+
+		Transaction := core.NewTransactionContract(from, to, big.NewInt(0), 1, inp)
+		Transaction.GasPrice = big.NewInt(1)
+		Transaction.Gas = 100000000
+		randomBytes := make([]byte, 32)
+		_, _ = rand.Read(randomBytes)
+		hexString := hex.EncodeToString(randomBytes)
+		Transaction.UUID = hexString
+		UUIDToFromMap[hexString] = from
+		var txs = []*core.Transaction{Transaction}
+		it := message.InjectTxs{
+			Txs:       txs,
+			ToShardID: uint64(utils.Addr2Shard(from)),
+		}
+		itByte, err := json.Marshal(it)
+		if err != nil {
+			log.Panic(err)
+		}
+		send_msg := message.MergeMessage(message.CInject, itByte)
+		go networks.TcpDial(send_msg, d.Ip_nodeTable[uint64(utils.Addr2Shard(from))][0])
+
+		UUID := hexString
+		now := time.Now()
+		var tx message.TxInfo
+		var ok bool
+		for time.Since(now).Seconds() < 30 {
+			TxInfoMapLock.Lock()
+			tx, ok = TxInfoMap[UUID]
+			if ok {
+				TxInfoMapLock.Unlock()
+				break
+			}
+			TxInfoMapLock.Unlock()
+			time.Sleep(time.Millisecond * 100)
+		}
+
+		response.Result = "0x" + hex.EncodeToString(tx.Res)
+
+	case "eth_getCode":
+		acc := request.Params[0].(string)[2:]
+
+		global.AccCodeMapLock.Lock()
+		delete(global.AccCodeMap, acc)
+		global.AccCodeMapLock.Unlock()
+		m := new(message.QueryAccount)
+		m.FromNodeID = 0
+		m.FromShardID = params.DeciderShard
+		m.Account = acc
+		b, _ := json.Marshal(m)
+		ms := message.MergeMessage(message.CQueryAccount, b)
+		go networks.TcpDial(ms, d.Ip_nodeTable[uint64(utils.Addr2Shard(acc))][0])
+		var Code []byte
+		for true {
+			global.AccCodeMapLock.Lock()
+			if code, ok := global.AccCodeMap[acc]; ok {
+				Code = code
+				delete(global.AccCodeMap, acc)
+				global.AccCodeMapLock.Unlock()
+				break
+			} else {
+				global.AccCodeMapLock.Unlock()
+				time.Sleep(time.Millisecond * 100)
+			}
+		}
+
+		response.Result = "0x" + hex.EncodeToString(Code)
+
+	default:
+		response.Error = map[string]interface{}{"code": -32601, "message": "Method not found"}
+	}
+
+	return &response
+
 }

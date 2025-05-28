@@ -3,7 +3,7 @@ rm -rf ./record
 rm -rf ./log
 rm -rf ./key
 
-go build -o blockEmulator_Linux_Precompile ./main.go
+# go build -o blockEmulator_Linux_Precompile ./main.go
 
 ./blockEmulator_Linux_Precompile -n 1 -N 4 -s 0 -S 3 -m 4 &
 

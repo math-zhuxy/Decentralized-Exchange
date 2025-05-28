@@ -9,6 +9,7 @@ import (
 	"blockEmulator/service"
 	"blockEmulator/supervisor/committee"
 	"blockEmulator/utils"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -69,6 +70,54 @@ func (d *Supervisor) RunHTTP() error {
 		}
 	}()
 	fmt.Println("Now client begin listening.")
+
+	// JSON-RPC 2.0 规范的请求格式，连接remix用
+	r.POST("/", func(c *gin.Context) {
+		d := c.MustGet("supervisor").(*Supervisor)
+
+		// 读取原始请求体
+		var rawMsg json.RawMessage
+		if err := c.ShouldBindJSON(&rawMsg); err != nil {
+			c.JSON(http.StatusBadRequest, RpcResponse{
+				Jsonrpc: "2.0",
+				Error:   map[string]interface{}{"code": -32700, "message": "Parse error"},
+			})
+			return
+		}
+
+		// 检测是单个请求还是批处理
+		if bytes.HasPrefix(rawMsg, []byte("[")) {
+			// 批处理请求
+			var requests []RpcRequest
+			if err := json.Unmarshal(rawMsg, &requests); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid batch request"})
+				return
+			}
+
+			var responses []RpcResponse
+			for _, req := range requests {
+				resp := handleRpcRequest(d, &req)
+				// JSON-RPC 2.0: 如果 request 没有 id，则认为是 notification，不应返回结果
+				if req.Id != nil {
+					responses = append(responses, *resp)
+				}
+			}
+			c.JSON(http.StatusOK, responses)
+
+		} else {
+			// 单个请求
+			var req RpcRequest
+			if err := json.Unmarshal(rawMsg, &req); err != nil {
+				c.JSON(http.StatusBadRequest, RpcResponse{
+					Jsonrpc: "2.0",
+					Error:   map[string]interface{}{"code": -32700, "message": "Parse error"},
+				})
+				return
+			}
+			resp := handleRpcRequest(d, &req)
+			c.JSON(http.StatusOK, resp)
+		}
+	})
 
 	router := r.Group("/broker-fi")
 

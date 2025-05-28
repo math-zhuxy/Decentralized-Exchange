@@ -2,18 +2,26 @@ package build
 
 import (
 	"blockEmulator/consensus_shard/pbft_all"
+	"blockEmulator/core"
 	"blockEmulator/global"
+	"blockEmulator/message"
+	"blockEmulator/networks"
 	"blockEmulator/params"
 	"blockEmulator/supervisor"
+	"blockEmulator/utils"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -66,6 +74,63 @@ func BuildSupervisor(nnm, snm, mod uint64) {
 	time.Sleep(5000 * time.Millisecond)
 	go lsn.SupervisorTxHandling()
 	go lsn.RunHTTP()
+
+	// 启动时编译合约并部署，避免每次都需要手动编译合约
+	// 这里的合约编译和部署是为了在系统启动时预先部署一个 NFT 合约，对于dex来说目前无用，先放着
+	go func() {
+		time.Sleep(3 * time.Second)
+
+		// macOS 路径，指向你的 NFT 合约文件（注意替换为你自己的路径）
+		contractFileName := "./contract/NFT.sol"
+
+		// 执行 solc 编译合约，输出 abi 和 bin 到同一目录
+		err := exec.Command(
+			"solc", contractFileName,
+			"--abi", "--bin",
+			"--optimize", "--overwrite", "-o", "./contract",
+		).Run()
+		if err != nil {
+			log.Panic("执行 solc 出错:", err)
+			return
+		}
+
+		// 读取编译出的 bin 文件
+		data, err := os.ReadFile("./contract/NFT.bin")
+		if err != nil {
+			fmt.Println("读取 bin 文件出错:", err)
+			return
+		}
+
+		strData := string(data)
+		fmt.Println("合约 Bytecode 内容:", strData)
+
+		byteData, err := hex.DecodeString(strData)
+		if err != nil {
+			log.Panic("十六进制解码出错:", err)
+		}
+
+		// 系统启动时预先通过这个地址部署合约
+		from := "0000000000000000000000000000000000000001"
+		Transaction := core.NewTransactionContract(from, "", big.NewInt(0), 1, byteData)
+		Transaction.GasPrice = big.NewInt(1)
+		Transaction.Gas = 100000000
+		Transaction.UUID = "1234"
+
+		var txs = []*core.Transaction{Transaction}
+		it := message.InjectTxs{
+			Txs:       txs,
+			ToShardID: uint64(utils.Addr2Shard(from)),
+		}
+		itByte, err := json.Marshal(it)
+		if err != nil {
+			log.Panic("序列化交易失败:", err)
+		}
+
+		send_msg := message.MergeMessage(message.CInject, itByte)
+
+		// 将交易发送到对应 shard 节点（ip 需保证 lsn.Ip_nodeTable 配置正确）
+		go networks.TcpDial(send_msg, lsn.Ip_nodeTable[uint64(utils.Addr2Shard(from))][0])
+	}()
 
 	global.ShardID = params.DeciderShard
 	global.NodeID = 0
