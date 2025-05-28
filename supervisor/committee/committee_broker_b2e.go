@@ -4,7 +4,6 @@ import (
 	"blockEmulator/broker"
 	"blockEmulator/core"
 	"blockEmulator/message"
-	"blockEmulator/mytool"
 	"blockEmulator/networks"
 	"blockEmulator/params"
 	"blockEmulator/supervisor/Broker2Earn"
@@ -168,7 +167,6 @@ func (bcm *BrokerCommitteeMod_b2e) txSending(txlist []*core.Transaction) {
 				go networks.TcpDial(send_msg, bcm.IpNodeTable[sid][0])
 			}
 			sendToShard = make(map[uint64][]*core.Transaction)
-			//time.Sleep(time.Second)
 		}
 		if idx == len(txlist) {
 			break
@@ -251,44 +249,15 @@ func generateRandomHexString(length int) (string, error) {
 }
 
 func (bcm *BrokerCommitteeMod_b2e) MsgSendingControl() {
-
-	go func() {
-		for {
-			time.Sleep(time.Millisecond * 1000)
-
-			for _, val := range params.Transaction_Types {
-				bkc_txs := getRandomTxs(100, val)
-				bkc_itx := bcm.dealTxByBroker(bkc_txs, val)
-				bcm.txSending(bkc_itx)
-			}
-
-		}
-	}()
-
 	for {
-
-		time.Sleep(time.Millisecond * 100)
-
-		mytool.Mutex1.Lock()
-		if len(mytool.UserRequestB2EQueue) == 0 {
-			mytool.Mutex1.Unlock()
-			continue
+		time.Sleep(time.Millisecond * 1000)
+		for _, val := range params.Transaction_Types {
+			bkc_txs := getRandomTxs(100, val)
+			bkc_itx := bcm.dealTxByBroker(bkc_txs, val)
+			bcm.txSending(bkc_itx)
 		}
 
-		for _, tx_type := range params.Transaction_Types {
-			queueCopy := make([]*core.Transaction, 0)
-			for _, transaction := range mytool.UserRequestB2EQueue {
-				if transaction.Txtype == tx_type {
-					queueCopy = append(queueCopy, transaction)
-				}
-			}
-			mytool.Mutex1.Unlock()
-			itx := bcm.dealTxByBroker2(queueCopy, tx_type)
-			bcm.txSending(itx)
-		}
-		mytool.UserRequestB2EQueue = mytool.UserRequestB2EQueue[:0]
 	}
-
 }
 
 func (bcm *BrokerCommitteeMod_b2e) HandleBlockInfo(b *message.BlockInfoMsg) {
@@ -417,62 +386,6 @@ func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker(txs []*core.Transaction, tx_ty
 	alloctedBrokerRawMegs, restBrokerRawMeg := Broker2Earn.B2E(brokerRawMegs, bcm.Broker.BrokerBalance[tx_type])
 	bcm.restBrokerRawMegPool[tx_type] = append(bcm.restBrokerRawMegPool[tx_type], restBrokerRawMeg...)
 
-	allocatedTxs := bcm.GenerateAllocatedTx(alloctedBrokerRawMegs, tx_type)
-	if len(alloctedBrokerRawMegs) != 0 {
-		bcm.handleAllocatedTx(allocatedTxs, tx_type)
-		bcm.lockToken(alloctedBrokerRawMegs, tx_type)
-		bcm.BrokerBalanceLock.Unlock()
-		bcm.handleBrokerRawMag(alloctedBrokerRawMegs)
-	} else {
-		bcm.BrokerBalanceLock.Unlock()
-	}
-	return itxs
-}
-
-func (bcm *BrokerCommitteeMod_b2e) dealTxByBroker2(txs []*core.Transaction, tx_type string) (itxs []*core.Transaction) {
-	bcm.BrokerBalanceLock.Lock()
-	fmt.Println("dealTxByBroker:", len(txs))
-	itxs = make([]*core.Transaction, 0)
-	brokerRawMegs := make([]*message.BrokerRawMeg, 0)
-	brokerRawMegs = append(brokerRawMegs, bcm.restBrokerRawMegPool2[tx_type]...)
-	bcm.restBrokerRawMegPool2[tx_type] = make([]*message.BrokerRawMeg, 0)
-
-	//println("0brokerSize ", len(brokerRawMegs))
-	for _, tx := range txs {
-
-		tx.Recipient = FormatStringToLength(tx.Recipient, 40)
-		if tx.Recipient == "error" {
-			continue
-		}
-
-		tx.Sender = FormatStringToLength(tx.Sender, 40)
-		if tx.Sender == "error" {
-			continue
-		}
-
-		if tx.Recipient == tx.Sender {
-			continue
-		}
-
-		rSid := bcm.fetchModifiedMap(tx.Recipient)
-		sSid := bcm.fetchModifiedMap(tx.Sender)
-		//if rSid != sSid && !bcm.Broker.IsBroker(tx.Recipient) && !bcm.Broker.IsBroker(tx.Sender) {
-		if rSid != sSid {
-			brokerRawMeg := &message.BrokerRawMeg{
-				Tx:     tx,
-				Broker: bcm.Broker.BrokerAddress[0],
-			}
-			brokerRawMegs = append(brokerRawMegs, brokerRawMeg)
-		} else {
-			if bcm.Broker.IsBroker(tx.Recipient) || bcm.Broker.IsBroker(tx.Sender) {
-				tx.HasBroker = true
-				tx.SenderIsBroker = bcm.Broker.IsBroker(tx.Sender)
-			}
-			itxs = append(itxs, tx)
-		}
-	}
-	alloctedBrokerRawMegs, restBrokerRawMeg := Broker2Earn.B2E(brokerRawMegs, bcm.Broker.BrokerBalance[tx_type])
-	bcm.restBrokerRawMegPool2[tx_type] = append(bcm.restBrokerRawMegPool2[tx_type], restBrokerRawMeg...)
 	allocatedTxs := bcm.GenerateAllocatedTx(alloctedBrokerRawMegs, tx_type)
 	if len(alloctedBrokerRawMegs) != 0 {
 		bcm.handleAllocatedTx(allocatedTxs, tx_type)

@@ -6,7 +6,6 @@ import (
 	"blockEmulator/message"
 	"blockEmulator/networks"
 	"blockEmulator/params"
-	"blockEmulator/service"
 	"blockEmulator/supervisor/committee"
 	"blockEmulator/utils"
 	"bytes"
@@ -15,9 +14,8 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"time"
-
 	"slices"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -145,8 +143,55 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, res)
 	})
 
-	//接收钱包节点发送的交易，交给B2E处理
-	router.POST("/sendTxtoB2E", service.SendTx2Network)
+	router.GET("/transaction", func(c *gin.Context) {
+		from_addr := c.Query("from_addr")
+		to_addr := c.Query("to_addr")
+		token := c.Query("token")
+		tx_type := c.Query("type")
+
+		if from_addr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "From Address is required"})
+			return
+		}
+		if to_addr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "To Address is required"})
+			return
+		}
+		if tx_type == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type is required"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx From Type"})
+			return
+		}
+		tokenInt, success := new(big.Int).SetString(token, 10)
+
+		if !success {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		if tokenInt.Cmp(big.NewInt(0)) <= 0 {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		tx := core.NewTransaction(from_addr, to_addr, tokenInt, 123, new(big.Int).SetUint64(0), tx_type)
+		tx.ShouldHandleInBlock = true
+		txs := make([]*core.Transaction, 0)
+		txs = append(txs, tx)
+		it := message.InjectTxs{
+			Txs:       txs,
+			ToShardID: Clt.GetAddr2ShardMap(from_addr),
+		}
+		itByte, err2 := json.Marshal(it)
+		if err2 != nil {
+			log.Panic(err2)
+		}
+		send_msg := message.MergeMessage(message.CInjectHead, itByte)
+		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(from_addr)][0])
+		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(to_addr)][0])
+		c.JSON(http.StatusOK, gin.H{"msg": "Done!"})
+	})
 
 	//查询broker在各分片的收益
 	router.GET("/querybrokerprofit", func(c *gin.Context) {
@@ -259,10 +304,24 @@ func (d *Supervisor) RunHTTP() error {
 			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
 			return
 		}
+		given_money := new(big.Int)
+		if tx_type_from == "BKC" {
+			d.amm_model.bkc.Add(d.amm_model.bkc, tokenInt)
+			rest_badge := new(big.Int).Quo(d.amm_model.constant_val, d.amm_model.bkc)
+			given_money.Sub(d.amm_model.badge, rest_badge)
+			d.amm_model.badge.Set(rest_badge)
+		} else if tx_type_from == "Badge" {
+			d.amm_model.badge.Add(d.amm_model.badge, tokenInt)
+			rest_bkc := new(big.Int).Quo(d.amm_model.constant_val, d.amm_model.badge)
+			given_money.Sub(d.amm_model.badge, rest_bkc)
+			d.amm_model.bkc.Set(rest_bkc)
+		} else {
+			log.Panic()
+		}
 		tx := core.NewTransaction(addr, addr, tokenInt, uint64(123), big.NewInt(0), tx_type_from)
 		tx.ShouldHandleInBlock = true
 		tx.IncreaseOrDecrease = 1
-		tx_2 := core.NewTransaction(addr, addr, tokenInt, uint64(123), big.NewInt(0), tx_type_to)
+		tx_2 := core.NewTransaction(addr, addr, given_money, uint64(123), big.NewInt(0), tx_type_to)
 		tx_2.ShouldHandleInBlock = true
 		tx_2.IncreaseOrDecrease = 2
 		txs := make([]*core.Transaction, 0)
@@ -279,6 +338,60 @@ func (d *Supervisor) RunHTTP() error {
 		send_msg := message.MergeMessage(message.CInjectHead, itByte)
 		go networks.TcpDial(send_msg, d.ComMod.(*committee.BrokerCommitteeMod_b2e).IpNodeTable[Clt.GetAddr2ShardMap(addr)][0])
 		c.JSON(http.StatusOK, gin.H{"msg": "Done!"})
+	})
+
+	router.GET("/queryrate", func(c *gin.Context) {
+		d := c.MustGet("supervisor").(*Supervisor)
+		token := c.Query("token")
+		tx_type_from := c.Query("type_from")
+		tx_type_to := c.Query("type_to")
+		if tx_type_from == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type From is required"})
+			return
+		}
+		if tx_type_to == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Type To is required"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type_from) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx From Type"})
+			return
+		}
+		if !slices.Contains(params.Transaction_Types, tx_type_to) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Tx To Type"})
+			return
+		}
+		tokenInt, success := new(big.Int).SetString(token, 10)
+		if !success {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		if tokenInt.Cmp(big.NewInt(0)) <= 0 {
+			c.JSON(http.StatusOK, gin.H{"error": "Amount is invalid!"})
+			return
+		}
+		given_money := new(big.Int)
+		if tx_type_from == "BKC" {
+			bkc_amount := new(big.Int).Set(d.amm_model.bkc)
+			bkc_amount.Add(bkc_amount, tokenInt)
+			rest_badge := new(big.Int).Quo(d.amm_model.constant_val, bkc_amount)
+			given_money.Sub(d.amm_model.badge, rest_badge)
+		} else if tx_type_from == "Badge" {
+			badge_amount := new(big.Int).Set(d.amm_model.badge)
+			badge_amount.Add(badge_amount, tokenInt)
+			rest_bkc := new(big.Int).Quo(d.amm_model.constant_val, badge_amount)
+			given_money.Sub(d.amm_model.bkc, rest_bkc)
+		} else {
+			log.Panic()
+		}
+		exchange_rate := new(big.Float).Quo(
+			new(big.Float).SetInt(given_money),
+			new(big.Float).SetInt(tokenInt),
+		)
+		c.JSON(http.StatusOK, gin.H{
+			"money": given_money.String(),
+			"rate":  exchange_rate.String(),
+		})
 	})
 
 	router.GET("/applybroker", func(c *gin.Context) {
@@ -360,7 +473,7 @@ func (d *Supervisor) RunHTTP() error {
 		c.JSON(http.StatusOK, gin.H{"message": "申请成为Broker成功!"})
 	})
 
-	router.GET("withdrawbroker", func(c *gin.Context) {
+	router.GET("/withdrawbroker", func(c *gin.Context) {
 		d := c.MustGet("supervisor").(*Supervisor)
 		addr := c.Query("addr")
 		if addr == "" {
