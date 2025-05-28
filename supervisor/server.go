@@ -13,9 +13,8 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"time"
-
 	"slices"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
