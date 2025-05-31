@@ -20,3 +20,9 @@ jobs:
 
       - name: Build exe
         run: go build -o blockEmulator_Windows_Precompile.exe ./main.go
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockEmulator_exe
+          path: blockEmulator_Windows_Precompile.exe
