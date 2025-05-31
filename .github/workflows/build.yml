@@ -1,0 +1,22 @@
+name: Build Go Project on Windows
+
+on:
+  push:
+    branches:
+      - main 
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go (latest)
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable' 
+
+      - name: Build exe
+        run: go build -o blockEmulator_Windows_Precompile.exe ./main.go
